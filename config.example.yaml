@@ -1,0 +1,56 @@
+# CreatorAssistant - AI Highlight Detection Config
+# Copy to config.yaml and fill in your values. Do NOT commit config.yaml (it contains secrets).
+
+# FFmpeg path - leave empty to use PATH. If ffmpeg not found, set full path to bin folder:
+ffmpeg_path: ""  # e.g. "C:\\ffmpeg-essentials\\bin"
+
+# Clip output settings (optimized for Shorts/TikTok/Reels)
+clip:
+  duration_seconds: 30
+  padding_before: 10
+  padding_after: 2
+  min_clip_length: 15
+  max_clip_length: 60
+  aspect_ratio: "9:16"
+  output_dir: "outputs"
+  crf: 18
+  preset: "slow"
+
+# Game events (Riot Live Client Data API)
+game_events:
+  enabled: true
+  file: "game_events.json"
+  recording_start_offset: 0
+  prefer_events_over_ai: true
+  filter_my_kills_only: true
+  player_summoner_name: "YOUR_SUMMONER_NAME"
+
+# YouTube Shorts upload
+youtube:
+  enabled: false
+  client_secrets_file: "client_secrets.json"  # From Google Cloud Console
+  title_template: "League Clip {num}"
+  clip_counter_start: 1
+  description: ""
+  tags: []
+  privacy: "public"
+
+# TikTok upload
+tiktok:
+  enabled: false
+  client_key: "YOUR_TIKTOK_CLIENT_KEY"
+  client_secret: "YOUR_TIKTOK_CLIENT_SECRET"
+  redirect_uri: "http://localhost:8080/callback"
+  title_template: "League Clip {num}"
+  privacy: "PUBLIC_TO_EVERYONE"
+
+# AI detection
+detection:
+  audio_weight: 0.5
+  motion_weight: 0.5
+  sensitivity: 0.5
+  min_score: 0.6
+  min_prominence: 0.15
+  min_seconds_between_clips: 120
+  max_clips_per_video: 15
+  window_seconds: 4

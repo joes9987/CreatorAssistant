@@ -1,0 +1,25 @@
+# Config and secrets (use config.example.yaml as template)
+config.yaml
+client_secret*.json
+client_secrets*.json
+*_token.json
+
+# Runtime data
+outputs/
+game_events.json
+clip_counter.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

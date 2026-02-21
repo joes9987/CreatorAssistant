@@ -1,0 +1,16 @@
+# CreatorAssistant - AI Clip Detection for League Videos
+opencv-python>=4.8.0
+numpy>=1.24.0
+librosa>=0.10.0
+soundfile>=0.12.0
+scipy>=1.11.0
+ffmpeg-python>=0.2.0
+PyYAML>=6.0
+
+# YouTube upload (optional)
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
+# TikTok upload (optional)
+tiktok-api-client>=0.0.15
