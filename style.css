@@ -76,8 +76,28 @@ h1 {
   margin: 0;
 }
 
-.links li {
+.links li,
+.feature-list li {
   margin-bottom: 0.5rem;
+}
+
+.feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feature-list li {
+  padding-left: 1.25rem;
+  position: relative;
+}
+
+.feature-list li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .links a {
