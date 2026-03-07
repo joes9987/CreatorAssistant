@@ -71,8 +71,10 @@ For precise kill moments, use the **game events logger** (Riot's Live Client Dat
    python game_events_logger.py
    ```
 2. **While playing:** League must be in an active match. Start OBS when the game loads in.
-3. **Multiple games:** Leave the logger running across your full session. It detects new games and logs all kills. Stop with Ctrl+C when done.
-4. **When processing:** Run `python main.py` — it will use kill timestamps instead of AI detection.
+3. **Multiple games:** Leave the logger running across your full session. It detects new games and logs all kills.
+4. **Auto-stop:** With OBS WebSocket (Tools → WebSocket Server Settings), the logger exits automatically when you stop OBS recording. Install `obsws-python` and ensure the server is enabled in OBS. Otherwise, use Ctrl+C.
+5. **Multiple recordings:** Each session saves to `eventlogs/events_YYYY-MM-DD_HH-MM-SS.json`. When you run `main.py` on several videos, it automatically picks the matching eventlog per video.
+6. **When processing:** Run `python main.py` — it will use kill timestamps instead of AI detection.
 
 No Overwolf needed. The logger uses Riot's local API (port 2999), which Overwolf also uses.
 
@@ -83,8 +85,8 @@ No Overwolf needed. The logger uses Riot's local API (port 2999), which Overwolf
 OBS recording → (optional: edit in Filmora) → CreatorAssistant → Shorts upload
 ```
 
-- **With events file:** Clips are cut exactly at kill timestamps.
-- **Without events file:** AI detection finds highlights from audio + motion.
+- **With eventlogs:** Clips are cut exactly at kill timestamps (main.py matches each video to its session file).
+- **Without eventlogs:** AI detection finds highlights from audio + motion.
 
 ## Upload to YouTube Shorts (optional)
 
@@ -101,7 +103,8 @@ OBS recording → (optional: edit in Filmora) → CreatorAssistant → Shorts up
    youtube:
      enabled: true
      privacy: "private"   # or "public" / "unlisted"
-     title_template: "League Clip {n}"
+     creator_name: "joes9987"
+     title_template: "{creator} | League clip {num} with {champion}"
    ```
 
 3. **First run:** A browser window opens to log in to your Google account and authorize the app. A `youtube_token.json` file is created so you won't need to log in again.

@@ -15,10 +15,13 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
+from timer_utils import ElapsedTimer
+
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 CLIENT_SECRETS_FILE = "client_secrets.json"
 TOKEN_FILE = "youtube_token.json"
 CLIP_COUNTER_FILE = "clip_counter.txt"
+UPLOADED_TRACKING_FILE = "youtube_uploaded.json"
 
 
 def get_youtube_service(secrets_path: str | None = None, token_path: str = TOKEN_FILE, script_dir: str | Path | None = None):
@@ -108,46 +111,96 @@ def _save_clip_counter(counter_path: Path, value: int) -> None:
         f.write(str(value))
 
 
-def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | None = None) -> list[str]:
+def _load_uploaded_paths(tracking_path: Path) -> set[str]:
+    """Load set of clip paths already uploaded to YouTube."""
+    if not tracking_path.exists():
+        return set()
+    try:
+        import json
+        data = json.loads(tracking_path.read_text())
+        return set(data.get("paths", []))
+    except (json.JSONDecodeError, OSError):
+        return set()
+
+
+def _mark_uploaded(tracking_path: Path, path: str) -> None:
+    """Add a clip path to the uploaded tracking file."""
+    import json
+    paths = _load_uploaded_paths(tracking_path)
+    paths.add(str(Path(path).resolve()))
+    tracking_path.write_text(json.dumps({"paths": sorted(paths)}, indent=2))
+
+
+def upload_clips(
+    clip_paths: list[str],
+    config: dict,
+    clip_nums: list[int] | None = None,
+    champion: str = "",
+) -> tuple[list[str], list[int]]:
     """
-    Upload multiple clips. Returns list of uploaded video IDs.
-    Uses persistent {num} for titles. Pass clip_nums to share numbering with TikTok.
+    Upload multiple clips. Returns (uploaded video IDs, successfully used clip numbers).
+    Only successful uploads count toward clip numbering. Pass clip_nums to share numbering with TikTok.
+    Skips clips that were already uploaded (tracked in youtube_uploaded.json).
+    champion: from game_events.json local_player_champion; used in title_template as {champion}.
     """
     yt_cfg = config.get("youtube", {})
     if not yt_cfg.get("enabled", False):
-        return []
+        return [], []
 
     base = Path(__file__).parent
     counter_path = base / CLIP_COUNTER_FILE
-    if clip_nums is not None:
-        clip_numbers = clip_nums
-    else:
-        counter_start = yt_cfg.get("clip_counter_start", 1)
-        start = _get_next_clip_num(counter_path, counter_start)
-        clip_numbers = [start + i for i in range(len(clip_paths))]
+    tracking_path = base / UPLOADED_TRACKING_FILE
+    uploaded_set = _load_uploaded_paths(tracking_path)
+
+    # Filter out already-uploaded clips
+    to_upload: list[tuple[str, int]] = []
+    for i, path in enumerate(clip_paths):
+        resolved = str(Path(path).resolve())
+        if resolved in uploaded_set:
+            print(f"  Skipping (already uploaded to YouTube): {Path(path).name}")
+            continue
+        clip_num = (clip_nums[i] if clip_nums and i < len(clip_nums) else None) or (
+            _get_next_clip_num(counter_path, yt_cfg.get("clip_counter_start", 1)) + len(to_upload)
+        )
+        to_upload.append((path, clip_num))
+
+    if not to_upload:
+        print("  All clips already uploaded to YouTube")
+        return [], []
 
     secrets_file = yt_cfg.get("client_secrets_file", "").strip() or CLIENT_SECRETS_FILE
-    title_template = yt_cfg.get("title_template", "League Highlight {num}")
+    title_template = yt_cfg.get("title_template", "{creator} | League clip {num}{champion_suffix}")
+    creator = yt_cfg.get("creator_name", "joes9987")
+    champ_suffix = f" with {champion}" if champion else ""
     description = yt_cfg.get("description", "")
     tags = yt_cfg.get("tags", ["League of Legends", "Gaming", "Shorts"])
     privacy = yt_cfg.get("privacy", "private")
 
     youtube = get_youtube_service(secrets_path=secrets_file)
     uploaded = []
-    for i, path in enumerate(clip_paths):
-        n = i + 1
-        clip_num = clip_numbers[i] if i < len(clip_numbers) else clip_numbers[-1] + i
-        title = title_template.format(num=clip_num, n=n, total=len(clip_paths))
-        print(f"  Uploading clip {n}/{len(clip_paths)} (#{clip_num}): {Path(path).name}")
-        try:
-            vid = upload_video(path, title=title, description=description, tags=tags, privacy=privacy, youtube=youtube)
-            if vid:
-                uploaded.append(vid)
-                if clip_nums is None:
-                    _save_clip_counter(counter_path, clip_num + 1)
-                print(f"    -> https://youtube.com/shorts/{vid}")
-            else:
-                print(f"    -> Failed")
-        except Exception as e:
-            print(f"    -> Error: {e}")
-    return uploaded
+    success_clip_nums = []
+    with ElapsedTimer("Uploading to YouTube") as timer:
+        for i, (path, clip_num) in enumerate(to_upload):
+            n = i + 1
+            total = len(to_upload)
+            title = title_template.format(
+                num=clip_num, n=n, total=total,
+                champion=champion, ChampionName=champion,
+                champion_suffix=champ_suffix,
+                creator=creator, username=creator,
+            )
+            timer.log(f"  Uploading clip {n}/{total} (#{clip_num}): {Path(path).name}")
+            try:
+                vid = upload_video(path, title=title, description=description, tags=tags, privacy=privacy, youtube=youtube)
+                if vid:
+                    uploaded.append(vid)
+                    success_clip_nums.append(clip_num)
+                    _mark_uploaded(tracking_path, path)
+                    if clip_nums is None:
+                        _save_clip_counter(counter_path, clip_num + 1)
+                    timer.log(f"    -> https://youtube.com/shorts/{vid}")
+                else:
+                    timer.log("    -> Failed")
+            except Exception as e:
+                timer.log(f"    -> Error: {e}")
+    return uploaded, success_clip_nums

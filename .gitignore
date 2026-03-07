@@ -6,8 +6,12 @@ client_secrets*.json
 
 # Runtime data
 outputs/
+eventlogs/
 game_events.json
 clip_counter.txt
+youtube_uploaded.json
+tiktok_uploaded.json
+instagram_uploaded.json
 
 # Python
 __pycache__/
@@ -17,6 +21,10 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Local data
+inputs/
+.claude/
 
 # IDE
 .idea/

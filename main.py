@@ -19,7 +19,7 @@ def select_clips_to_upload(clip_paths: list[str]) -> list[str]:
         return []
 
     root = tk.Tk()
-    root.title("Select clips to upload to YouTube")
+    root.title("Select clips to upload")
     root.geometry("500x400")
 
     vars_list = []
@@ -104,13 +104,14 @@ def main():
         outputs = extract_all_clips(video_path, highlights, config=config)
         print(f"\nDone! {len(outputs)} clips saved to {config['clip']['output_dir']}/")
 
-        if outputs and (config.get("youtube", {}).get("enabled") or config.get("tiktok", {}).get("enabled")):
+        if outputs and (config.get("youtube", {}).get("enabled") or config.get("tiktok", {}).get("enabled") or config.get("instagram", {}).get("enabled")):
             to_upload = select_clips_to_upload(outputs)
             if to_upload:
                 yt_enabled = config.get("youtube", {}).get("enabled")
                 ttk_enabled = config.get("tiktok", {}).get("enabled")
+                ig_enabled = config.get("instagram", {}).get("enabled")
                 clip_nums = None
-                if yt_enabled and ttk_enabled:
+                if sum(bool(x) for x in [yt_enabled, ttk_enabled, ig_enabled]) >= 2:
                     base = Path(__file__).parent
                     counter_path = base / "clip_counter.txt"
                     counter_start = config.get("youtube", {}).get("clip_counter_start", 1)
@@ -137,7 +138,16 @@ def main():
                             print(f"  Uploaded {len(uploaded)} clips to TikTok")
                     except Exception as e:
                         print(f"  TikTok upload failed: {e}")
-                if clip_nums and (yt_enabled or ttk_enabled):
+                if ig_enabled:
+                    print(f"\nUploading {len(to_upload)} clips to Instagram Reels...")
+                    try:
+                        from instagram_upload import upload_clips as instagram_upload_clips
+                        uploaded = instagram_upload_clips(to_upload, config, clip_nums=clip_nums)
+                        if uploaded:
+                            print(f"  Uploaded {len(uploaded)} clips to Instagram")
+                    except Exception as e:
+                        print(f"  Instagram upload failed: {e}")
+                if clip_nums and (yt_enabled or ttk_enabled or ig_enabled):
                     base = Path(__file__).parent
                     (base / "clip_counter.txt").write_text(str(clip_nums[-1] + 1))
             else:

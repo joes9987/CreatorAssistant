@@ -14,3 +14,6 @@ google-auth-httplib2>=0.1.1
 
 # TikTok upload (optional)
 tiktok-api-client>=0.0.15
+
+# Instagram upload (optional)
+requests>=2.31.0

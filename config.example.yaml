@@ -44,6 +44,15 @@ tiktok:
   title_template: "League Clip {num}"
   privacy: "PUBLIC_TO_EVERYONE"
 
+# Instagram Reels upload
+instagram:
+  enabled: false
+  app_id: "YOUR_META_APP_ID"
+  app_secret: "YOUR_META_APP_SECRET"
+  access_token: "YOUR_INSTAGRAM_ACCESS_TOKEN"
+  ig_user_id: "YOUR_INSTAGRAM_USER_ID"
+  title_template: "League Clip {num}"
+
 # AI detection
 detection:
   audio_weight: 0.5
