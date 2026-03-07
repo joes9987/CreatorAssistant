@@ -9,45 +9,73 @@
 </head>
 <body>
   <div class="container">
-    <header>
+
+    <header class="hero">
       <h1>CreatorAssistant</h1>
-      <p class="tagline">League of Legends highlight clipping tool for YouTube Shorts and TikTok</p>
+      <p class="tagline">Automatic highlight clipping for League of Legends.<br>Record, detect, extract, upload.</p>
+      <div class="hero-divider"></div>
     </header>
 
-    <div class="card">
+    <section class="card">
       <h2>About</h2>
-      <p>CreatorAssistant is a desktop application that helps League of Legends content creators extract and publish gameplay highlights. It runs locally on your computer—no cloud processing or data collection.</p>
+      <p>CreatorAssistant is a desktop tool that helps League of Legends content creators extract and publish gameplay highlights. It runs locally on your computer — no cloud processing or data collection.</p>
       <p>Record your games with OBS, run CreatorAssistant to detect exciting moments (kills, team fights), and upload clips directly to YouTube Shorts and TikTok.</p>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>How It Works</h2>
-      <ul class="feature-list">
-        <li><strong>Record</strong> — Use OBS to record your League games.</li>
-        <li><strong>Detect</strong> — CreatorAssistant finds highlight moments using in-game kill data (Riot API) or AI (audio + motion).</li>
-        <li><strong>Extract</strong> — Cuts clips in 9:16 vertical format, ready for Shorts and Reels.</li>
-        <li><strong>Upload</strong> — Publishes clips to YouTube and TikTok with one-click OAuth.</li>
-      </ul>
-    </div>
+    <section>
+      <h2 class="section-title">How It Works</h2>
+      <div class="steps-grid">
+        <div class="step">
+          <span class="step-num">1</span>
+          <strong>Record</strong>
+          <p>Use OBS to record your League games as you play.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <strong>Detect</strong>
+          <p>CreatorAssistant finds highlights using kill data or AI analysis.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <strong>Extract</strong>
+          <p>Clips are cut in 9:16 vertical format, ready for Shorts and Reels.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
+          <strong>Upload</strong>
+          <p>Publish clips to YouTube and TikTok with one-click OAuth.</p>
+        </div>
+      </div>
+    </section>
 
-    <div class="card">
-      <h2>Integrations</h2>
-      <p><strong>YouTube Shorts</strong> — OAuth 2.0 login. Clips upload to your channel with custom titles and tags.</p>
-      <p><strong>TikTok</strong> — Login Kit (OAuth) lets users authorize CreatorAssistant to post clips to their TikTok account. Users sign in via browser, grant access, and the app uploads clips on their behalf. All processing happens locally; only the final video is sent to TikTok.</p>
-    </div>
+    <section>
+      <h2 class="section-title">Integrations</h2>
+      <div class="integrations-grid">
+        <div class="card integration-card integration-youtube">
+          <h3>YouTube Shorts</h3>
+          <p>OAuth 2.0 login. Clips upload to your channel with custom titles and tags.</p>
+        </div>
+        <div class="card integration-card integration-tiktok">
+          <h3>TikTok</h3>
+          <p>Login Kit (OAuth) lets you authorize CreatorAssistant to post clips to your TikTok account. All processing happens locally.</p>
+        </div>
+      </div>
+    </section>
 
-    <div class="card">
+    <section class="card">
       <h2>Privacy & Security</h2>
       <p>CreatorAssistant processes videos entirely on your device. OAuth tokens for YouTube and TikTok are stored locally and never shared. No analytics, tracking, or data collection.</p>
-    </div>
+      <div class="legal-links">
+        <a href="CreatorAssistant-terms.html">Terms of Service</a>
+        <span class="legal-dot"></span>
+        <a href="CreatorAssistant-privacy.html">Privacy Policy</a>
+      </div>
+    </section>
 
-    <div class="card">
-      <h2>Legal</h2>
-      <ul class="links">
-        <li><a href="CreatorAssistant-terms.html">Terms of Service</a></li>
-        <li><a href="CreatorAssistant-privacy.html">Privacy Policy</a></li>
-      </ul>
-    </div>
   </div>
+
+  <footer class="site-footer">
+    <p>CreatorAssistant</p>
+  </footer>
 </body>
 </html>
