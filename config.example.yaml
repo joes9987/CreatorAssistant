@@ -19,8 +19,15 @@ clip:
 # Game events (Riot Live Client Data API)
 game_events:
   enabled: true
-  file: "game_events.json"
+  log_dir: "eventlogs"       # Per-session event files (events_YYYY-MM-DD_HH-MM-SS.json)
+  file: "game_events.json"   # Legacy single file (when log_dir empty)
   recording_start_offset: 0
+  # OBS WebSocket - logger auto-exits when recording stops (optional)
+  obs_websocket:
+    enabled: true
+    host: "localhost"
+    port: 4455
+    password: ""  # OBS Tools > WebSocket Server Settings > Show Connect Info
   prefer_events_over_ai: true
   filter_my_kills_only: true
   player_summoner_name: "YOUR_SUMMONER_NAME"
