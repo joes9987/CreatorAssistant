@@ -11,6 +11,8 @@ import os
 import shutil
 from pathlib import Path
 
+from app_paths import project_root
+
 import cv2
 import numpy as np
 import librosa
@@ -221,10 +223,10 @@ def get_matching_events_path(
     if config is None:
         config = {}
     ge_cfg = config.get("game_events", {})
-    base = Path(__file__).resolve().parent
+    root = project_root()
     log_dir = Path(ge_cfg.get("log_dir", "eventlogs"))
     if not log_dir.is_absolute():
-        log_dir = base / log_dir
+        log_dir = root / log_dir
     if not log_dir.exists():
         # Fallback: legacy single file
         legacy = ge_cfg.get("file", "game_events.json")
@@ -295,6 +297,8 @@ def load_highlights_from_events(
     # Filter to only kills by the configured player (if enabled)
     if ge_cfg.get("filter_my_kills_only"):
         player_name = (ge_cfg.get("player_summoner_name") or "").strip().lower()
+        if "#" in player_name:
+            player_name = player_name.split("#")[0].strip()
         if player_name:
             filtered = []
             for k in kills:
@@ -359,7 +363,7 @@ def detect_highlights(
         if events_file:
             events_path = events_file
             if not Path(events_path).is_absolute():
-                script_dir = Path(__file__).resolve().parent
+                script_dir = project_root()
                 candidates = [script_dir / Path(events_path).name, Path(video_path).parent / Path(events_path).name]
                 for p in candidates:
                     if p.exists():

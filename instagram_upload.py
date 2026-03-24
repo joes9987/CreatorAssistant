@@ -11,6 +11,8 @@ import string
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+
+from app_paths import project_root
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
@@ -196,8 +198,7 @@ def get_access_token(config: dict) -> str:
     Priority: saved long-lived token → refresh → OAuth flow → config fallback.
     """
     ig_cfg = config.get("instagram", {})
-    base = Path(__file__).parent
-    token_path = str(base / TOKEN_FILE)
+    token_path = str(project_root() / TOKEN_FILE)
 
     app_id = ig_cfg.get("app_id", "").strip()
     app_secret = ig_cfg.get("app_secret", "").strip()
@@ -360,8 +361,7 @@ def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | Non
 
     title_template = ig_cfg.get("title_template", "League Clip {num}")
 
-    base = Path(__file__).parent
-    counter_path = base / "clip_counter.txt"
+    counter_path = project_root() / "clip_counter.txt"
     if clip_nums is not None:
         clip_numbers = clip_nums
     else:

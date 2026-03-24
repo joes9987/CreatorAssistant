@@ -26,7 +26,27 @@ pip install -r requirements.txt
 
 ## Usage
 
-**Process all videos in this folder:**
+### Desktop UI (recommended)
+
+```bash
+python run_main_gui.py
+```
+
+- Defaults to your **`input/`** folder (create it, or set **Save as default recordings folder** after browsing elsewhere). Preferences are stored in `gui_settings.json`.
+- **Process selected** / **Process all in folder** runs detection + extract; upload checkboxes use the same dialog as the CLI.
+
+**Game events logger (separate window):**
+
+```bash
+python run_logger_gui.py
+```
+
+Use **Stop and save** when you finish recording if OBS WebSocket auto-stop does not fire.
+
+### Command line
+
+**Browse for videos** (starts in `input/` per `config.yaml` → `paths.default_input_dir`):
+
 ```bash
 python main.py
 ```
@@ -37,6 +57,10 @@ python main.py "2025-12-12 00-29-52.mp4" "2025-12-25 02-29-53.mp4"
 ```
 
 Clips are saved to the `outputs/` folder as `{video_name}_clip_01.mp4`, `_clip_02.mp4`, etc.
+
+### Standalone `.exe` builds
+
+See **[BUILD.md](BUILD.md)** for PyInstaller commands (`CreatorAssistant` + `CreatorAssistantGameLogger`).
 
 ## Configuration
 
@@ -70,9 +94,10 @@ For precise kill moments, use the **game events logger** (Riot's Live Client Dat
    ```bash
    python game_events_logger.py
    ```
+   Or use **`python run_logger_gui.py`** for a window with **Stop and save**.
 2. **While playing:** League must be in an active match. Start OBS when the game loads in.
 3. **Multiple games:** Leave the logger running across your full session. It detects new games and logs all kills.
-4. **Auto-stop:** With OBS WebSocket (Tools → WebSocket Server Settings), the logger exits automatically when you stop OBS recording. Install `obsws-python` and ensure the server is enabled in OBS. Otherwise, use Ctrl+C.
+4. **Auto-stop:** With OBS WebSocket (Tools → WebSocket Server Settings), the logger may exit when you stop OBS recording. Install `obsws-python` and ensure the server is enabled in OBS. If it does not stop, use **Stop and save** in the logger app or Ctrl+C in the terminal.
 5. **Multiple recordings:** Each session saves to `eventlogs/events_YYYY-MM-DD_HH-MM-SS.json`. When you run `main.py` on several videos, it automatically picks the matching eventlog per video.
 6. **When processing:** Run `python main.py` — it will use kill timestamps instead of AI detection.
 

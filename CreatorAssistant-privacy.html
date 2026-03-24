@@ -3,33 +3,53 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CreatorAssistant - Privacy Policy</title>
+  <title>CreatorAssistant — Privacy Policy</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
-    <a href="index.html" class="back-link">← Back to CreatorAssistant</a>
+    <a href="index.html" class="back-link">&larr; Back to CreatorAssistant</a>
 
     <header>
       <h1>Privacy Policy</h1>
-      <p class="updated"><em>Last updated: February 2025</em></p>
+      <p class="updated"><em>Last updated: February 2026</em></p>
     </header>
 
     <div class="card">
-      <h2 class="section">1. Data Collection</h2>
-      <p>CreatorAssistant runs locally on your device. Video processing and clip extraction are performed entirely on your computer. We do not collect, store, or transmit your video content or personal data.</p>
+      <h2 class="section">1. Overview</h2>
+      <p>CreatorAssistant is a desktop application. All video processing — highlight detection, clip extraction, and format conversion — runs entirely on your device. We do not operate servers that receive, store, or process your video content.</p>
 
-      <h2 class="section">2. Third-Party Services</h2>
-      <p>When you use the YouTube or TikTok upload features, you authenticate directly with those platforms. OAuth tokens are stored locally on your device. CreatorAssistant does not have access to your platform credentials beyond what is required for uploads.</p>
+      <h2 class="section">2. Data We Do Not Collect</h2>
+      <p>CreatorAssistant does not collect, transmit, or store any personal information, usage analytics, telemetry, crash reports, or video content on remote servers. There is no account system and no sign-up required to use the application itself.</p>
 
-      <h2 class="section">3. Local Storage</h2>
-      <p>CreatorAssistant stores configuration and authentication tokens locally in the application folder. These files remain on your device and are not shared.</p>
+      <h2 class="section">3. Third-Party Platform Authentication</h2>
+      <p>When you use the upload features, you authenticate directly with YouTube (Google), TikTok, or Instagram (Meta) through their official OAuth flows. CreatorAssistant receives an access token from these platforms so it can upload clips on your behalf. These tokens are stored locally on your device in the application folder and are never sent to us or any third party.</p>
+      <p>The only data sent to third-party platforms is the video file you choose to upload, along with metadata you configure (title, description, tags). This data is transmitted directly from your device to the platform's API.</p>
 
-      <h2 class="section">4. No Analytics</h2>
-      <p>CreatorAssistant does not include analytics, tracking, or data-collection code.</p>
+      <h2 class="section">4. Riot Games API</h2>
+      <p>The optional game events logger connects to Riot Games' local Live Client Data API (localhost port 2999) to read in-game kill events during an active League of Legends match. This data never leaves your device — it is written to a local JSON file used for clip timing.</p>
 
-      <h2 class="section">5. Contact</h2>
-      <p>For privacy-related questions, contact the tool's maintainer.</p>
+      <h2 class="section">5. Local Storage</h2>
+      <p>CreatorAssistant stores the following files locally in the application folder:</p>
+      <ul>
+        <li>Configuration (<code>config.yaml</code>) — your settings and API keys</li>
+        <li>OAuth tokens (<code>youtube_token.json</code>, <code>tiktok_token.json</code>, <code>instagram_token.json</code>) — platform access tokens</li>
+        <li>Event logs (<code>eventlogs/</code>) — kill timestamps from gameplay sessions</li>
+        <li>GUI preferences (<code>gui_settings.json</code>) — default folder path</li>
+      </ul>
+      <p>These files remain on your device and are not shared with anyone.</p>
+
+      <h2 class="section">6. Data Deletion</h2>
+      <p>To remove all data, delete the application folder. To revoke platform access, visit the connected apps settings on <a href="https://myaccount.google.com/permissions" class="inline-link">Google</a>, <a href="https://www.tiktok.com/setting/security" class="inline-link">TikTok</a>, or <a href="https://www.instagram.com/accounts/manage_access/" class="inline-link">Instagram</a>.</p>
+
+      <h2 class="section">7. Children's Privacy</h2>
+      <p>CreatorAssistant is not directed at children under 13. We do not knowingly collect information from children.</p>
+
+      <h2 class="section">8. Changes to This Policy</h2>
+      <p>We may update this Privacy Policy from time to time. The "Last updated" date at the top reflects the most recent revision.</p>
+
+      <h2 class="section">9. Contact</h2>
+      <p>For privacy-related questions, contact us at <strong>creatorassistant.app@gmail.com</strong>.</p>
     </div>
   </div>
 </body>

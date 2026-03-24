@@ -9,6 +9,8 @@ import json
 import os
 import secrets
 from pathlib import Path
+
+from app_paths import project_root
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 import requests
@@ -65,8 +67,7 @@ def get_tiktok_client(config: dict):
             "Get them from https://developers.tiktok.com/"
         )
 
-    base = Path(__file__).parent
-    token_path = base / TIKTOK_TOKEN_FILE
+    token_path = project_root() / TIKTOK_TOKEN_FILE
 
     # Try loading existing token
     if token_path.exists():
@@ -192,8 +193,7 @@ def upload_clips(
     creator = ttk_cfg.get("creator_name", "joes9987")
     champ_suffix = f" with {champion}" if champion else ""
 
-    base = Path(__file__).parent
-    counter_path = base / "clip_counter.txt"
+    counter_path = project_root() / "clip_counter.txt"
     if clip_nums is not None:
         clip_numbers = clip_nums
     else:

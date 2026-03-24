@@ -24,7 +24,16 @@ env/
 
 # Local data
 inputs/
+input/*
+!input/.gitkeep
+gui_settings.json
 .claude/
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.spec.bak
 
 # IDE
 .idea/

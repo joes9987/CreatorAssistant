@@ -8,6 +8,8 @@ import random
 import time
 from pathlib import Path
 
+from app_paths import project_root
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -26,7 +28,7 @@ UPLOADED_TRACKING_FILE = "youtube_uploaded.json"
 
 def get_youtube_service(secrets_path: str | None = None, token_path: str = TOKEN_FILE, script_dir: str | Path | None = None):
     """Authenticate and return a YouTube API service object."""
-    base = Path(script_dir or __file__).parent.resolve()
+    base = Path(script_dir).resolve() if script_dir else project_root()
     secrets_path = secrets_path or CLIENT_SECRETS_FILE
     if not Path(secrets_path).is_absolute():
         secrets_path = str(base / Path(secrets_path).name)
@@ -147,9 +149,9 @@ def upload_clips(
     if not yt_cfg.get("enabled", False):
         return [], []
 
-    base = Path(__file__).parent
-    counter_path = base / CLIP_COUNTER_FILE
-    tracking_path = base / UPLOADED_TRACKING_FILE
+    root = project_root()
+    counter_path = root / CLIP_COUNTER_FILE
+    tracking_path = root / UPLOADED_TRACKING_FILE
     uploaded_set = _load_uploaded_paths(tracking_path)
 
     # Filter out already-uploaded clips

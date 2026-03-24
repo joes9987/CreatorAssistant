@@ -1,6 +1,10 @@
 # CreatorAssistant - AI Highlight Detection Config
 # Copy to config.yaml and fill in your values. Do NOT commit config.yaml (it contains secrets).
 
+# Default folder for CLI file picker and fallback when no file is chosen (relative to project root).
+paths:
+  default_input_dir: "input"
+
 # FFmpeg path - leave empty to use PATH. If ffmpeg not found, set full path to bin folder:
 ffmpeg_path: ""  # e.g. "C:\\ffmpeg-essentials\\bin"
 
