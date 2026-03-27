@@ -27,6 +27,7 @@ inputs/
 input/*
 !input/.gitkeep
 gui_settings.json
+.highlight_cache/
 .claude/
 
 # PyInstaller

@@ -41,8 +41,9 @@ class ElapsedTimer:
                     break
                 elapsed = time.time() - self._start
                 msg = f"\r  {self.desc}... {_format_elapsed(elapsed)} elapsed    "
-                sys.stdout.write(msg)
-                sys.stdout.flush()
+                if sys.stdout:
+                    sys.stdout.write(msg)
+                    sys.stdout.flush()
             time.sleep(1)
 
     def __enter__(self):
@@ -58,9 +59,9 @@ class ElapsedTimer:
             pass
         if self._thread:
             self._thread.join(timeout=2)
-        # Clear timer line, print buffered messages, then final time
-        sys.stdout.write("\r" + " " * 60 + "\r")
-        sys.stdout.flush()
+        if sys.stdout:
+            sys.stdout.write("\r" + " " * 60 + "\r")
+            sys.stdout.flush()
         for msg in self._messages:
             print(msg)
         elapsed = time.time() - self._start
@@ -75,9 +76,11 @@ def iter_with_timer(iterable, desc: str):
     for item in iterable:
         count += 1
         elapsed = time.time() - start
-        sys.stdout.write(f"\r  {desc}... {_format_elapsed(elapsed)} elapsed ({count} samples)    ")
-        sys.stdout.flush()
+        if sys.stdout:
+            sys.stdout.write(f"\r  {desc}... {_format_elapsed(elapsed)} elapsed ({count} samples)    ")
+            sys.stdout.flush()
         yield item
     elapsed = time.time() - start
-    sys.stdout.write(f"\r  {desc}... Done in {_format_elapsed(elapsed)}    \n")
-    sys.stdout.flush()
+    if sys.stdout:
+        sys.stdout.write(f"\r  {desc}... Done in {_format_elapsed(elapsed)}    \n")
+        sys.stdout.flush()

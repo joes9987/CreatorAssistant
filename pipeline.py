@@ -45,7 +45,7 @@ def process_one_video(
     _log(log, f"\nProcessing: {video_path}")
 
     _log(log, "Detecting highlights...")
-    highlights = detect_highlights(video_path, config)
+    highlights = detect_highlights(video_path, config, log=log)
 
     if not highlights:
         _log(log, "  No highlights detected. Try increasing 'sensitivity' in config.yaml")

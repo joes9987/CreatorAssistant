@@ -67,3 +67,11 @@ detection:
   min_seconds_between_clips: 120
   max_clips_per_video: 15
   window_seconds: 4
+
+# Performance tuning (optional — sensible defaults are used if omitted)
+performance:
+  audio_sample_rate: 11025         # Lower = faster audio extraction; 11025 is enough for energy detection
+  motion_sample_interval_sec: 2.0  # Seconds between sampled frames for motion analysis (higher = faster)
+  motion_resize: [160, 90]         # Downscale frames before comparing (width, height)
+  extract_parallel_workers: 2      # Parallel FFmpeg clip extractions
+  use_hw_encoder: "auto"           # "auto" tries NVENC, falls back to libx264. Set false to force software.

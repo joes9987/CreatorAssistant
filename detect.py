@@ -4,11 +4,13 @@ Uses audio energy analysis + visual motion detection to find exciting moments.
 Supports Riot Live Client Data API events (kills) for accurate clip extraction.
 """
 
+import hashlib
 import json
 import subprocess
 import tempfile
 import os
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 
 from app_paths import project_root
@@ -16,10 +18,7 @@ from app_paths import project_root
 import cv2
 import numpy as np
 import librosa
-import soundfile as sf
 import yaml
-
-from timer_utils import iter_with_timer
 
 
 def _get_ffmpeg_bin(config: dict | None = None) -> tuple[str, str]:
@@ -152,10 +151,12 @@ def compute_motion_scores(
     sample_interval_sec: float = 1.0,
     resize_width: int = 128,
     resize_height: int = 72,
+    log: Callable[[str], None] | None = None,
 ) -> np.ndarray:
     """
     Sample frames and compute frame-to-frame difference (motion).
-    Uses seek-based sampling: only reads needed frames (much faster than sequential read).
+    Uses sequential grab/read: grab() skips frames without decoding, read() only
+    decodes sampled frames. 5-10x faster than per-frame seeking on MP4 files.
     High motion = action, team fights, etc.
     Returns array of motion scores per window.
     """
@@ -164,30 +165,40 @@ def compute_motion_scores(
         return np.zeros(int(duration / window_seconds) + 1)
 
     total_frames = int(duration * fps)
-    sample_interval = max(1, int(fps * sample_interval_sec))  # e.g. 1 sample/sec = 30 frames apart at 30fps
-    num_samples = total_frames // sample_interval
-    if num_samples < 2:
+    step = max(1, int(fps * sample_interval_sec))
+    expected_samples = total_frames // step
+    if expected_samples < 2:
         cap.release()
         return np.array([0.0])
 
-    prev_frame = None
+    prev_gray = None
     motions = []
-    frame_indices = list(range(0, total_frames, sample_interval))
+    frames_grabbed = 0
+    log_interval = max(1, expected_samples // 10)
 
-    for i, frame_idx in enumerate(iter_with_timer(frame_indices, "Analyzing motion")):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-        ret, frame = cap.read()
+    for sample_i in range(expected_samples):
+        if sample_i == 0:
+            ret, frame = cap.read()
+            frames_grabbed += 1
+        else:
+            for _ in range(step - 1):
+                cap.grab()
+            ret, frame = cap.read()
+            frames_grabbed += step
+
         if not ret:
             break
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.resize(gray, (resize_width, resize_height))
 
-        if prev_frame is not None:
-            diff = cv2.absdiff(prev_frame, gray)
-            motion = np.mean(diff)
-            motions.append(motion)
-        prev_frame = gray
+        if prev_gray is not None:
+            motions.append(float(np.mean(cv2.absdiff(prev_gray, gray))))
+        prev_gray = gray
+
+        if log and sample_i % log_interval == 0 and sample_i > 0:
+            pct = int(sample_i / expected_samples * 100)
+            log(f"  Motion analysis {pct}%...")
 
     cap.release()
 
@@ -230,7 +241,7 @@ def get_matching_events_path(
     if not log_dir.exists():
         # Fallback: legacy single file
         legacy = ge_cfg.get("file", "game_events.json")
-        p = base / Path(legacy).name
+        p = root / Path(legacy).name
         return str(p) if p.exists() else None
 
     try:
@@ -262,7 +273,7 @@ def get_matching_events_path(
             best_path = str(p)
     if best_path is None and not list(log_dir.glob("events_*.json")):
         legacy = ge_cfg.get("file", "game_events.json")
-        p = base / Path(legacy).name
+        p = root / Path(legacy).name
         if p.exists():
             return str(p)
     return best_path
@@ -344,10 +355,54 @@ def load_highlights_from_events(
     return selected
 
 
+def _cache_dir() -> Path:
+    d = project_root() / ".highlight_cache"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _cache_key(video_path: str) -> str:
+    """Stable short key from the absolute path."""
+    return hashlib.sha1(video_path.encode()).hexdigest()[:16]
+
+
+def _load_cached_highlights(video_path: str) -> list[dict] | None:
+    """Return cached highlights if the video hasn't changed since the cache was written."""
+    cache_file = _cache_dir() / f"{_cache_key(video_path)}.json"
+    if not cache_file.exists():
+        return None
+    try:
+        data = json.loads(cache_file.read_text())
+        cached_mtime = data.get("video_mtime")
+        cached_size = data.get("video_size")
+        stat = os.stat(video_path)
+        if cached_mtime == stat.st_mtime and cached_size == stat.st_size:
+            return data["highlights"]
+    except Exception:
+        pass
+    return None
+
+
+def _save_cached_highlights(video_path: str, highlights: list[dict]) -> None:
+    try:
+        stat = os.stat(video_path)
+        data = {
+            "video_path": video_path,
+            "video_mtime": stat.st_mtime,
+            "video_size": stat.st_size,
+            "highlights": highlights,
+        }
+        cache_file = _cache_dir() / f"{_cache_key(video_path)}.json"
+        cache_file.write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
+
+
 def detect_highlights(
     video_path: str,
     config: dict | None = None,
     events_file: str | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """
     Detect highlight moments in a video.
@@ -355,8 +410,18 @@ def detect_highlights(
     Otherwise falls back to AI (audio + motion) analysis.
     Returns list of dicts with 'start', 'end' (seconds) and 'score'.
     """
+    def _log(msg: str) -> None:
+        if log:
+            log(msg)
+        else:
+            print(msg)
+
     if config is None:
         config = load_config()
+
+    video_path = str(Path(video_path).resolve())
+    if not os.path.exists(video_path):
+        raise FileNotFoundError(f"Video not found: {video_path}")
 
     ge_cfg = config.get("game_events", {})
     if ge_cfg.get("enabled", True):
@@ -376,12 +441,18 @@ def detect_highlights(
         if ge_cfg.get("prefer_events_over_ai", True) and events_path:
             highlights = load_highlights_from_events(events_path, video_path, config)
             if highlights:
-                print("  Using game events (kill timestamps from Live Client Data API)")
+                _log("  Using game events (kill timestamps from Live Client Data API)")
                 return highlights
             if Path(events_path).exists():
-                print("  Events file found but no matching kills (check filter_my_kills_only / player_summoner_name)")
+                _log("  Events file found but no matching kills (check filter_my_kills_only / player_summoner_name)")
             else:
-                print("  No matching eventlogs found - using AI detection")
+                _log("  No matching eventlogs found - using AI detection")
+
+    # Check cache before expensive AI detection
+    cached = _load_cached_highlights(video_path)
+    if cached is not None:
+        _log("  Using cached detection results (video unchanged)")
+        return cached
 
     det_cfg = config.get("detection", {})
     clip_cfg = config.get("clip", {})
@@ -396,60 +467,49 @@ def detect_highlights(
     padding_before = clip_cfg.get("padding_before", 10)
     padding_after = clip_cfg.get("padding_after", 8)
 
-    video_path = str(Path(video_path).resolve())
-    if not os.path.exists(video_path):
-        raise FileNotFoundError(f"Video not found: {video_path}")
-
     ffmpeg_path, ffprobe_path = _get_ffmpeg_bin(config)
     info = get_video_info(video_path, ffprobe_path)
     duration = info["duration"]
     fps = info["fps"]
 
-    # Audio analysis (lower sample rate for faster processing; 11025 sufficient for energy detection)
     perf_cfg = config.get("performance", {})
     audio_sr = perf_cfg.get("audio_sample_rate", 11025)
-    print("  Extracting audio...")
+    _log("  Extracting audio...")
     audio, sr = extract_audio(video_path, sample_rate=audio_sr, ffmpeg_path=ffmpeg_path)
     audio_energy = compute_audio_energy(audio, sr, window_sec)
     audio_norm = normalize_scores(audio_energy)
 
-    # Pad/trim to match duration
     n_windows = max(len(audio_norm), int(duration / window_sec))
     if len(audio_norm) < n_windows:
         audio_norm = np.pad(audio_norm, (0, n_windows - len(audio_norm)), mode="edge")
     audio_norm = audio_norm[:n_windows]
 
-    # Motion analysis (seek-based: only reads sampled frames for ~10–30x speedup)
-    print("  Analyzing motion...")
-    motion_sample_sec = perf_cfg.get("motion_sample_interval_sec", 1.0)
-    motion_resize = perf_cfg.get("motion_resize", [128, 72])
-    motion_resize = motion_resize if isinstance(motion_resize, (list, tuple)) else [128, 72]
+    _log("  Analyzing motion...")
+    motion_sample_sec = perf_cfg.get("motion_sample_interval_sec", 2.0)
+    motion_resize = perf_cfg.get("motion_resize", [160, 90])
+    motion_resize = motion_resize if isinstance(motion_resize, (list, tuple)) else [160, 90]
     motion_scores = compute_motion_scores(
         video_path, duration, fps, window_sec,
         sample_interval_sec=motion_sample_sec,
-        resize_width=motion_resize[0] if len(motion_resize) > 0 else 128,
-        resize_height=motion_resize[1] if len(motion_resize) > 1 else 72,
+        resize_width=motion_resize[0] if len(motion_resize) > 0 else 160,
+        resize_height=motion_resize[1] if len(motion_resize) > 1 else 90,
+        log=_log,
     )
     motion_norm = normalize_scores(motion_scores)
     if len(motion_norm) < n_windows:
         motion_norm = np.pad(motion_norm, (0, n_windows - len(motion_norm)), mode="edge")
     motion_norm = motion_norm[:n_windows]
 
-    # Combined score
     combined = audio_weight * audio_norm + motion_weight * motion_norm
-    threshold = np.percentile(combined, 100 - (sensitivity * 40))  # Higher sensitivity = lower threshold
+    threshold = np.percentile(combined, 100 - (sensitivity * 40))
 
-    # Find peaks: local maxima above threshold, with minimum score and prominence
     candidates = []
     for i in range(1, len(combined) - 1):
         score = combined[i]
-        # Must be local maximum
         if score < combined[i - 1] or score < combined[i + 1]:
             continue
-        # Above threshold and minimum score
         if score < threshold or score < min_score:
             continue
-        # Prominence: peak should stand out from neighbors (avoids noise)
         valley = min(combined[i - 1], combined[i + 1])
         if score - valley < min_prominence:
             continue
@@ -463,16 +523,17 @@ def detect_highlights(
                 "score": float(score),
             })
 
-    # Non-maximum suppression: keep best candidates, respect min_seconds_between_clips
     candidates.sort(key=lambda x: x["score"], reverse=True)
     selected = []
     for c in candidates:
         if len(selected) >= max_clips:
             break
-        # Check if too close to existing
         if any(abs(c["start"] - s["start"]) < min_between for s in selected):
             continue
         selected.append(c)
 
     selected.sort(key=lambda x: x["start"])
+
+    _save_cached_highlights(video_path, selected)
+
     return selected
