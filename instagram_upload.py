@@ -376,7 +376,7 @@ def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | Non
 
     # If ig_user_id wasn't in config, try to get it from saved token data
     if not ig_user_id:
-        saved = _load_token(str(base / TOKEN_FILE))
+        saved = _load_token(str(project_root() / TOKEN_FILE))
         if saved:
             ig_user_id = saved.get("ig_user_id", "")
     if not ig_user_id:
@@ -385,7 +385,7 @@ def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | Non
             "or re-run to authenticate via OAuth (it will be saved automatically)."
         )
 
-    tracking_path = base / IG_UPLOADED_FILE
+    tracking_path = project_root() / IG_UPLOADED_FILE
     uploaded_set = _load_uploaded_paths(tracking_path)
 
     # Filter out already-uploaded clips

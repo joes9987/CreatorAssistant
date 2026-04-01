@@ -207,7 +207,7 @@ def upload_clips(
     tik = get_tiktok_client(config)
     privacy = ttk_cfg.get("privacy", "PUBLIC_TO_EVERYONE")
 
-    tracking_path = base / TIKTOK_UPLOADED_FILE
+    tracking_path = project_root() / TIKTOK_UPLOADED_FILE
     uploaded_set = _load_uploaded_paths(tracking_path)
 
     # Filter out already-uploaded clips

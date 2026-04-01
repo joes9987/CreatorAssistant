@@ -4,13 +4,29 @@ Takes detected highlights and produces Shorts/TikTok/Reels-ready vertical clips.
 """
 
 import subprocess
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import yaml
 
 from detect import _get_ffmpeg_bin
-from timer_utils import ElapsedTimer
+
+
+def _log(log: Callable[[str], None] | None, msg: str) -> None:
+    if log:
+        log(msg)
+    else:
+        print(msg)
+
+
+def _format_elapsed(secs: float) -> str:
+    m, s = divmod(int(secs), 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}"
+    return f"{m}:{s:02d}"
 
 
 def _detect_hw_encoder(ffmpeg_path: str) -> str | None:
@@ -43,15 +59,12 @@ def extract_clip(
     crf: int = 18,
     preset: str = "medium",
     video_encoder: str | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> bool:
-    """
-    Extract a clip from video and convert to vertical 9:16.
-    Uses center crop to preserve the action.
-    """
+    """Extract a clip from video and convert to vertical 9:16."""
     duration = end_sec - start_sec
     output_path = str(Path(output_path).resolve())
 
-    # Center crop to 9:16, scale with Lanczos. format=yuv420p for NVENC compatibility
     crop_filter = "crop='min(iw,ih*9/16)':'ih':'max(0,(iw-ih*9/16)/2)':'0',scale=1080:1920:flags=lanczos,format=yuv420p"
 
     encoder = video_encoder or "libx264"
@@ -71,10 +84,10 @@ def extract_clip(
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if result.returncode != 0 and result.stderr:
             last_lines = result.stderr.strip().split("\n")[-3:]
-            print(f"  FFmpeg: {' '.join(last_lines)}")
+            _log(log, f"  FFmpeg: {' '.join(last_lines)}")
         return result.returncode == 0
     except Exception as e:
-        print(f"  Error extracting clip: {e}")
+        _log(log, f"  Error extracting clip: {e}")
         return False
 
 
@@ -84,6 +97,7 @@ def extract_all_clips(
     output_dir: str | None = None,
     base_name: str | None = None,
     config: dict | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> list[str]:
     """
     Extract all highlight clips from a video.
@@ -97,24 +111,23 @@ def extract_all_clips(
     out_dir = output_dir or clip_cfg.get("output_dir", "outputs")
     aspect = clip_cfg.get("aspect_ratio", "9:16")
     crf = clip_cfg.get("crf", 18)
-    preset = clip_cfg.get("preset", "medium")  # medium: faster than slow, similar quality
+    preset = clip_cfg.get("preset", "medium")
     parallel_workers = perf_cfg.get("extract_parallel_workers", 2)
 
     ffmpeg_path, _ = _get_ffmpeg_bin(config)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
-    # Optional hardware encoding (NVENC) - much faster if available
     video_encoder = None
     if perf_cfg.get("use_hw_encoder", "auto") in ("auto", True):
         video_encoder = _detect_hw_encoder(ffmpeg_path)
         if video_encoder:
-            print("  Using NVENC hardware encoder for faster extraction")
+            _log(log, "  Using NVENC hardware encoder for faster extraction")
 
     video_stem = Path(video_path).stem
     if base_name:
         video_stem = base_name
 
-    output_paths = [None] * len(highlights)  # Preserve order
+    output_paths = [None] * len(highlights)
 
     tasks = []
     for i, h in enumerate(highlights):
@@ -123,7 +136,7 @@ def extract_all_clips(
         out_file = Path(out_path)
 
         if out_file.exists():
-            print(f"  Skipping clip {i+1}/{len(highlights)} (already exists): {out_name}")
+            _log(log, f"  Skipping clip {i+1}/{len(highlights)} (already exists): {out_name}")
             output_paths[i] = out_path
             continue
 
@@ -138,40 +151,43 @@ def extract_all_clips(
         enc = video_encoder
         ok = extract_clip(
             video_path, hl["start"], hl["end"], path,
-            aspect, ffmpeg_path, crf, preset, enc
+            aspect, ffmpeg_path, crf, preset, enc, log=log
         )
-        # Fallback to libx264 if NVENC fails (driver/codec issues)
         if not ok and enc == "h264_nvenc":
-            print("  NVENC failed, retrying with software encoder...")
+            _log(log, "  NVENC failed, retrying with software encoder...")
             ok = extract_clip(
                 video_path, hl["start"], hl["end"], path,
-                aspect, ffmpeg_path, crf, preset, None
+                aspect, ffmpeg_path, crf, preset, None, log=log
             )
         return idx, path, ok
 
+    start_time = time.time()
+    _log(log, f"  Extracting {len(to_extract)} clip(s)...")
+
     if len(to_extract) > 1 and parallel_workers > 1:
-        with ElapsedTimer("Extracting clips") as timer:
-            with ThreadPoolExecutor(max_workers=min(parallel_workers, len(to_extract))) as ex:
-                futures = {ex.submit(_extract_one, t): t for t in to_extract}
-                for fut in as_completed(futures):
-                    idx, path, ok = fut.result()
-                    output_paths[idx] = path if ok else None
-                    timer.log(f"    -> {path}" if ok else f"    -> Failed: {Path(path).name}")
+        with ThreadPoolExecutor(max_workers=min(parallel_workers, len(to_extract))) as ex:
+            futures = {ex.submit(_extract_one, t): t for t in to_extract}
+            for fut in as_completed(futures):
+                idx, path, ok = fut.result()
+                output_paths[idx] = path if ok else None
+                _log(log, f"    -> {Path(path).name}" if ok else f"    -> Failed: {Path(path).name}")
     else:
-        with ElapsedTimer("Extracting clips") as timer:
-            for idx, h, out_path in to_extract:
-                timer.log(f"  Extracting clip: {h['start']:.1f}s - {h['end']:.1f}s")
+        for idx, h, out_path in to_extract:
+            _log(log, f"  Extracting clip: {h['start']:.1f}s - {h['end']:.1f}s")
+            ok = extract_clip(
+                video_path, h["start"], h["end"], out_path,
+                aspect, ffmpeg_path, crf, preset, video_encoder, log=log
+            )
+            if not ok and video_encoder == "h264_nvenc":
+                _log(log, "  NVENC failed, retrying with software encoder...")
                 ok = extract_clip(
                     video_path, h["start"], h["end"], out_path,
-                    aspect, ffmpeg_path, crf, preset, video_encoder
+                    aspect, ffmpeg_path, crf, preset, None, log=log
                 )
-                if not ok and video_encoder == "h264_nvenc":
-                    timer.log("  NVENC failed, retrying with software encoder...")
-                    ok = extract_clip(
-                        video_path, h["start"], h["end"], out_path,
-                        aspect, ffmpeg_path, crf, preset, None
-                    )
-                output_paths[idx] = out_path if ok else None
-                timer.log(f"    -> {out_path}" if ok else "    -> Failed")
+            output_paths[idx] = out_path if ok else None
+            _log(log, f"    -> {Path(out_path).name}" if ok else "    -> Failed")
+
+    elapsed = _format_elapsed(time.time() - start_time)
+    _log(log, f"  Extraction done in {elapsed}")
 
     return [p for p in output_paths if p]

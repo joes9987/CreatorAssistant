@@ -56,7 +56,7 @@ def process_one_video(
         _log(log, f"    {i+1}. {h['start']:.1f}s - {h['end']:.1f}s (score: {h['score']:.3f})")
 
     _log(log, "\nExtracting clips...")
-    outputs = extract_all_clips(video_path, highlights, config=config)
+    outputs = extract_all_clips(video_path, highlights, config=config, log=log)
     _log(log, f"\nDone! {len(outputs)} clips saved to {config['clip']['output_dir']}/")
     return outputs
 
