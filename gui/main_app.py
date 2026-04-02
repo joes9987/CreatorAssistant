@@ -29,7 +29,10 @@ FONT_FAMILY = "Segoe UI"
 
 
 class _UploadGate:
-    def __init__(self) -> None:
+    """Worker thread waits on the gate; main thread shows the clip dialog, then uploads run in a background thread so the UI and event loop stay alive (required for OAuth and long uploads)."""
+
+    def __init__(self, parent: ctk.CTk) -> None:
+        self._parent = parent
         self._q: queue.Queue[tuple[list[str], dict]] = queue.Queue()
         self._done = threading.Event()
 
@@ -38,19 +41,27 @@ class _UploadGate:
         self._q.put((outputs, config))
         self._done.wait()
 
-    def drain_if_pending(self, log_fn) -> bool:
+    def drain_if_pending(self, thread_log_fn) -> bool:
         try:
             outputs, config = self._q.get_nowait()
         except queue.Empty:
             return False
-        try:
-            to_upload = select_clips_to_upload(outputs)
-            if to_upload:
-                clip_nums = clip_nums_for_upload_count(config, len(to_upload))
-                run_uploads(to_upload, config, clip_nums, log_fn)
-            else:
-                log_fn("\nSkipped upload (none selected or cancelled)")
-        finally:
+
+        to_upload = select_clips_to_upload(outputs, parent=self._parent)
+        if to_upload:
+            clip_nums = clip_nums_for_upload_count(config, len(to_upload))
+
+            def _upload_worker() -> None:
+                try:
+                    run_uploads(to_upload, config, clip_nums, thread_log_fn)
+                except Exception as exc:
+                    thread_log_fn(f"\nUpload error: {exc}")
+                finally:
+                    self._done.set()
+
+            threading.Thread(target=_upload_worker, daemon=True).start()
+        else:
+            thread_log_fn("\nSkipped upload (none selected or cancelled)")
             self._done.set()
         return True
 
@@ -75,7 +86,7 @@ def main() -> None:
         return
 
     config = load_config(str(config_path))
-    gate = _UploadGate()
+    gate = _UploadGate(app)
     log_q: queue.Queue[str] = queue.Queue()
     worker_running = threading.Event()
 
@@ -237,7 +248,7 @@ def main() -> None:
                 append_log(msg)
         except queue.Empty:
             pass
-        while gate.drain_if_pending(append_log):
+        while gate.drain_if_pending(thread_log):
             pass
         if worker_running.is_set():
             app.after(120, poll_ui)
@@ -305,10 +316,24 @@ def main() -> None:
         for f in file_list:
             append_log(f"  {Path(f).name}")
         cfg = load_config(str(config_path))
-        to_upload = select_clips_to_upload(file_list)
+        to_upload = select_clips_to_upload(file_list, parent=app)
         if to_upload:
             clip_nums = clip_nums_for_upload_count(cfg, len(to_upload))
-            run_uploads(to_upload, cfg, clip_nums, append_log)
+
+            def _upload_only_worker() -> None:
+                try:
+                    run_uploads(to_upload, cfg, clip_nums, thread_log)
+                except Exception as exc:
+                    thread_log(f"\nUpload error: {exc}")
+                finally:
+                    thread_log("\n--- Upload complete ---")
+                    worker_running.clear()
+
+            worker_running.set()
+            proc_btn.configure(state="disabled")
+            proc_all_btn.configure(state="disabled")
+            threading.Thread(target=_upload_only_worker, daemon=True).start()
+            poll_ui()
         else:
             append_log("\nSkipped upload (none selected or cancelled)")
 

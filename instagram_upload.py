@@ -26,6 +26,8 @@ class _SafeFormatter(string.Formatter):
         return super().get_value(key, args, kwargs)
 
 GRAPH_API_BASE = "https://graph.instagram.com/v22.0"
+# Connect + read timeouts for Graph API (Instagram can be slow fetching video_url)
+_GRAPH_RQ_TIMEOUT = (60.0, 300.0)
 TOKEN_FILE = "instagram_token.json"
 IG_UPLOADED_FILE = "instagram_uploaded.json"
 IG_AUTH_URL = "https://www.instagram.com/oauth/authorize"
@@ -153,6 +155,7 @@ def _run_instagram_oauth(app_id: str, app_secret: str, redirect_uri: str) -> tup
             "redirect_uri": redirect_uri,
             "code": code,
         },
+        timeout=(60.0, 120.0),
     )
     _raise_with_body(resp)
     data = resp.json()
@@ -170,6 +173,7 @@ def _exchange_for_long_lived_token(short_token: str, app_secret: str) -> tuple[s
             "client_secret": app_secret,
             "access_token": short_token,
         },
+        timeout=_GRAPH_RQ_TIMEOUT,
     )
     _raise_with_body(resp)
     data = resp.json()
@@ -184,6 +188,7 @@ def _refresh_long_lived_token(token: str) -> tuple[str, int]:
             "grant_type": "ig_refresh_token",
             "access_token": token,
         },
+        timeout=_GRAPH_RQ_TIMEOUT,
     )
     _raise_with_body(resp)
     data = resp.json()
@@ -228,8 +233,11 @@ def get_access_token(config: dict) -> str:
 
     # 2. Use token from config.yaml (app_token or access_token from Meta dashboard)
     config_token = (ig_cfg.get("app_token", "") or ig_cfg.get("access_token", "")).strip()
+    # YAML / copy-paste sometimes wraps quotes or odd whitespace
+    config_token = config_token.strip().strip('"').strip("'")
     if config_token and app_secret:
-        # Try to exchange for long-lived token (~60 days)
+        # Short-lived → long-lived (ig_exchange_token). Fails with OAuth 190 if the token is
+        # already long-lived or not an Instagram Login user token — then try refresh below.
         try:
             long_token, expires_in = _exchange_for_long_lived_token(config_token, app_secret)
             _save_token(token_path, {
@@ -237,12 +245,27 @@ def get_access_token(config: dict) -> str:
                 "ig_user_id": ig_cfg.get("ig_user_id", ""),
                 "expires_at": time.time() + expires_in,
             })
-            print(f"  Exchanged for long-lived Instagram token (valid ~60 days)")
+            print("  Exchanged short-lived token for long-lived Instagram token (valid ~60 days)")
             return long_token
-        except Exception as e:
-            # Token may already be long-lived, or exchange not supported — use directly
-            print(f"  Note: Could not exchange for long-lived token ({e}). Using directly.")
-            return config_token
+        except Exception as exchange_err:
+            try:
+                new_token, expires_in = _refresh_long_lived_token(config_token)
+                _save_token(token_path, {
+                    "access_token": new_token,
+                    "ig_user_id": ig_cfg.get("ig_user_id", ""),
+                    "expires_at": time.time() + expires_in,
+                })
+                print(
+                    "  Refreshed long-lived Instagram token (config token was already long-lived; "
+                    "exchange only applies to short-lived tokens)"
+                )
+                return new_token
+            except Exception:
+                print(
+                    f"  Note: Could not exchange or refresh Instagram token ({exchange_err}). "
+                    "Using config token directly."
+                )
+                return config_token
 
     if config_token:
         return config_token
@@ -255,23 +278,49 @@ def get_access_token(config: dict) -> str:
 
 # ── Temporary file hosting ────────────────────────────────────────────────
 
+def _temp_upload_timeout(file_path: str) -> tuple[float, float]:
+    """Connect + read timeouts for tmpfiles upload (large Reels can take many minutes)."""
+    size_mb = Path(file_path).stat().st_size / (1024 * 1024)
+    # ~40s per MB floor 10 min, cap 2h read; connect stays modest
+    read_sec = max(600, min(7200, int(120 + size_mb * 40)))
+    return (60.0, float(read_sec))
+
+
 def _upload_to_temp_host(file_path: str) -> str:
     """Upload a file to tmpfiles.org and return a direct download URL.
     Instagram Login API requires a public video_url (no local file upload)."""
-    with open(file_path, "rb") as f:
-        resp = requests.post(
-            "https://tmpfiles.org/api/v1/upload",
-            files={"file": (Path(file_path).name, f, "video/mp4")},
-            timeout=120,
-        )
-    _raise_with_body(resp)
-    data = resp.json()
-    if data.get("status") != "success":
-        raise RuntimeError(f"Temp upload failed: {data}")
-    # Convert page URL to direct download URL
-    url = data["data"]["url"]  # e.g. https://tmpfiles.org/12345/clip.mp4
-    url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-    return url
+    path = Path(file_path)
+    timeout = _temp_upload_timeout(str(path))
+    last_err: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            with open(path, "rb") as f:
+                resp = requests.post(
+                    "https://tmpfiles.org/api/v1/upload",
+                    files={"file": (path.name, f, "video/mp4")},
+                    timeout=timeout,
+                )
+            _raise_with_body(resp)
+            data = resp.json()
+            if data.get("status") != "success":
+                raise RuntimeError(f"Temp upload failed: {data}")
+            url = data["data"]["url"]
+            url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+            return url
+        except (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+            requests.exceptions.ChunkedEncodingError,
+            TimeoutError,
+        ) as e:
+            last_err = e
+            if attempt < 3:
+                time.sleep(5 * attempt)
+                continue
+            raise RuntimeError(
+                f"Temp host upload failed after {attempt} attempts (large/slow upload). "
+                f"Try again or use a smaller clip. Underlying error: {e}"
+            ) from last_err
 
 
 # ── Upload functions ─────────────────────────────────────────────────────
@@ -286,6 +335,7 @@ def _create_reel_container(ig_user_id: str, access_token: str, caption: str, vid
             "caption": caption[:2200],
             "access_token": access_token,
         },
+        timeout=_GRAPH_RQ_TIMEOUT,
     )
     _raise_with_body(resp)
     data = resp.json()
@@ -302,6 +352,7 @@ def _wait_for_container(container_id: str, access_token: str, timeout: int = 300
         resp = requests.get(
             f"{GRAPH_API_BASE}/{container_id}",
             params={"fields": "status_code,status", "access_token": access_token},
+            timeout=_GRAPH_RQ_TIMEOUT,
         )
         _raise_with_body(resp)
         data = resp.json()
@@ -323,6 +374,7 @@ def _publish_container(ig_user_id: str, container_id: str, access_token: str) ->
     resp = requests.post(
         f"{GRAPH_API_BASE}/{ig_user_id}/media_publish",
         params={"creation_id": container_id, "access_token": access_token},
+        timeout=_GRAPH_RQ_TIMEOUT,
     )
     _raise_with_body(resp)
     media_id = resp.json().get("id")

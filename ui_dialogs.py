@@ -1,5 +1,6 @@
 """Shared dialogs for CLI and GUI — styled with customtkinter."""
 
+import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
 
@@ -14,16 +15,31 @@ FG_DIM = "#8a8a9a"
 FONT_FAMILY = "Segoe UI"
 
 
-def select_clips_to_upload(clip_paths: list[str]) -> list[str]:
-    """Show a dialog for the user to select which clips to upload. Returns selected paths."""
+def select_clips_to_upload(clip_paths: list[str], parent: tk.Misc | None = None) -> list[str]:
+    """Show a dialog for the user to select which clips to upload. Returns selected paths.
+
+    When parent is the main CTk window, use CTkToplevel so we do not create a second
+    root (which breaks the main app's event loop and freezes uploads).
+    """
     if not clip_paths:
         return []
 
     ctk.set_appearance_mode("dark")
-    dialog = ctk.CTk()
+
+    owns_root = parent is None
+    if owns_root:
+        dialog = ctk.CTk()
+    else:
+        dialog = ctk.CTkToplevel(parent)
+
     dialog.title("Upload clips")
     dialog.geometry("520x420")
     dialog.configure(fg_color=BG_DARK)
+
+    if not owns_root:
+        dialog.transient(parent)
+        dialog.grab_set()
+        dialog.focus_force()
 
     ctk.CTkLabel(
         dialog, text="Select clips to upload",
@@ -73,7 +89,13 @@ def select_clips_to_upload(clip_paths: list[str]) -> list[str]:
         font=(FONT_FAMILY, 13), corner_radius=8, command=on_skip,
     ).pack(side="left", padx=6)
 
-    dialog.mainloop()
+    dialog.protocol("WM_DELETE_WINDOW", on_skip)
+
+    if owns_root:
+        dialog.mainloop()
+    else:
+        dialog.wait_window()
+
     return selected
 
 
