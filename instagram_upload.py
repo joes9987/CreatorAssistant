@@ -278,49 +278,99 @@ def get_access_token(config: dict) -> str:
 
 # ── Temporary file hosting ────────────────────────────────────────────────
 
+_RETRYABLE_EXCEPTIONS = (
+    requests.exceptions.Timeout,
+    requests.exceptions.ConnectionError,
+    requests.exceptions.ChunkedEncodingError,
+    TimeoutError,
+    OSError,
+)
+
+_MAX_ATTEMPTS_PER_HOST = 3
+
+
 def _temp_upload_timeout(file_path: str) -> tuple[float, float]:
-    """Connect + read timeouts for tmpfiles upload (large Reels can take many minutes)."""
+    """Connect + read timeouts scaled by file size."""
     size_mb = Path(file_path).stat().st_size / (1024 * 1024)
-    # ~40s per MB floor 10 min, cap 2h read; connect stays modest
     read_sec = max(600, min(7200, int(120 + size_mb * 40)))
     return (60.0, float(read_sec))
 
 
+def _try_tmpfiles(path: Path, timeout: tuple[float, float]) -> str:
+    """Upload to tmpfiles.org. Returns a direct-download URL."""
+    with open(path, "rb") as f:
+        resp = requests.post(
+            "https://tmpfiles.org/api/v1/upload",
+            files={"file": (path.name, f, "video/mp4")},
+            timeout=timeout,
+        )
+    _raise_with_body(resp)
+    data = resp.json()
+    if data.get("status") != "success":
+        raise RuntimeError(f"tmpfiles.org upload failed: {data}")
+    url = data["data"]["url"]
+    return url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
+
+
+def _try_litterbox(path: Path, timeout: tuple[float, float]) -> str:
+    """Upload to litterbox.catbox.moe (24h expiry). Returns a direct URL."""
+    with open(path, "rb") as f:
+        resp = requests.post(
+            "https://litterbox.catbox.moe/resources/internals/api.php",
+            data={"reqtype": "fileupload", "time": "24h"},
+            files={"fileToUpload": (path.name, f, "video/mp4")},
+            timeout=timeout,
+        )
+    _raise_with_body(resp)
+    url = resp.text.strip()
+    if not url.startswith("http"):
+        raise RuntimeError(f"litterbox upload returned unexpected response: {url[:200]}")
+    return url
+
+
+_TEMP_HOSTS = [
+    ("tmpfiles.org", _try_tmpfiles),
+    ("litterbox.catbox.moe", _try_litterbox),
+]
+
+
 def _upload_to_temp_host(file_path: str) -> str:
-    """Upload a file to tmpfiles.org and return a direct download URL.
-    Instagram Login API requires a public video_url (no local file upload)."""
+    """Upload a file to a temporary public host and return a direct-download URL.
+
+    Tries each host up to ``_MAX_ATTEMPTS_PER_HOST`` times with exponential
+    backoff before falling through to the next host.
+    """
     path = Path(file_path)
     timeout = _temp_upload_timeout(str(path))
-    last_err: Exception | None = None
-    for attempt in range(1, 4):
-        try:
-            with open(path, "rb") as f:
-                resp = requests.post(
-                    "https://tmpfiles.org/api/v1/upload",
-                    files={"file": (path.name, f, "video/mp4")},
-                    timeout=timeout,
-                )
-            _raise_with_body(resp)
-            data = resp.json()
-            if data.get("status") != "success":
-                raise RuntimeError(f"Temp upload failed: {data}")
-            url = data["data"]["url"]
-            url = url.replace("tmpfiles.org/", "tmpfiles.org/dl/")
-            return url
-        except (
-            requests.exceptions.Timeout,
-            requests.exceptions.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-            TimeoutError,
-        ) as e:
-            last_err = e
-            if attempt < 3:
-                time.sleep(5 * attempt)
-                continue
-            raise RuntimeError(
-                f"Temp host upload failed after {attempt} attempts (large/slow upload). "
-                f"Try again or use a smaller clip. Underlying error: {e}"
-            ) from last_err
+    all_errors: list[str] = []
+
+    for host_name, uploader in _TEMP_HOSTS:
+        last_err: Exception | None = None
+        for attempt in range(1, _MAX_ATTEMPTS_PER_HOST + 1):
+            try:
+                if attempt > 1:
+                    print(f"    Retrying {host_name} (attempt {attempt}/{_MAX_ATTEMPTS_PER_HOST})...")
+                url = uploader(path, timeout)
+                if attempt > 1 or host_name != _TEMP_HOSTS[0][0]:
+                    print(f"    Uploaded via {host_name}")
+                return url
+            except _RETRYABLE_EXCEPTIONS as e:
+                last_err = e
+                if attempt < _MAX_ATTEMPTS_PER_HOST:
+                    delay = min(60, 5 * (2 ** (attempt - 1)))
+                    time.sleep(delay)
+                    continue
+            except Exception as e:
+                last_err = e
+                break
+        msg = f"{host_name}: {last_err}"
+        all_errors.append(msg)
+        print(f"    {host_name} failed after {attempt} attempt(s), trying next host...")
+
+    raise RuntimeError(
+        f"All temp hosts failed for {path.name}. "
+        f"Errors: {'; '.join(all_errors)}"
+    )
 
 
 # ── Upload functions ─────────────────────────────────────────────────────

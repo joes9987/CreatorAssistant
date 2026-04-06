@@ -16,6 +16,7 @@ clip:
   min_clip_length: 15
   max_clip_length: 60
   aspect_ratio: "9:16"
+  reframe_mode: "fit"    # "fit" = full FOV with black bars (like a video editor); "crop" = center-crop
   output_dir: "outputs"
   crf: 18
   preset: "slow"

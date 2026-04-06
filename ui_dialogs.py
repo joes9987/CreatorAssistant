@@ -65,15 +65,23 @@ def select_clips_to_upload(clip_paths: list[str], parent: tk.Misc | None = None)
 
     selected: list[str] = []
 
+    def _safe_destroy():
+        try:
+            for after_id in dialog.tk.call("after", "info"):
+                dialog.after_cancel(after_id)
+        except Exception:
+            pass
+        dialog.destroy()
+
     def on_upload():
         nonlocal selected
         selected = [clip_paths[i] for i, (_, v) in enumerate(switches) if v.get() == "on"]
-        dialog.destroy()
+        _safe_destroy()
 
     def on_skip():
         nonlocal selected
         selected = []
-        dialog.destroy()
+        _safe_destroy()
 
     btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
     btn_frame.pack(pady=(0, 18))
@@ -93,6 +101,10 @@ def select_clips_to_upload(clip_paths: list[str], parent: tk.Misc | None = None)
 
     if owns_root:
         dialog.mainloop()
+        try:
+            dialog.quit()
+        except Exception:
+            pass
     else:
         dialog.wait_window()
 
@@ -100,10 +112,14 @@ def select_clips_to_upload(clip_paths: list[str], parent: tk.Misc | None = None)
 
 
 def select_video_files(initial_dir: str | Path | None = None) -> list[Path]:
-    """Open a native file browser for the user to select video file(s)."""
+    """Open a native file browser for the user to select video file(s).
+
+    Uses a plain tk.Tk root (hidden) instead of ctk.CTk so we don't create a
+    CustomTkinter root with internal ``after`` callbacks that fire after destroy.
+    """
     from app_paths import project_root
 
-    root = ctk.CTk()
+    root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)
     init = str(Path(initial_dir).resolve()) if initial_dir else str(project_root())

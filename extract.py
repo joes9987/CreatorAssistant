@@ -49,6 +49,25 @@ def load_config(config_path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
+def _build_vertical_filter(mode: str = "fit") -> str:
+    """Build the FFmpeg video filter for 9:16 output.
+
+    mode="fit"  — scale the full frame to fit inside 1080x1920, pad with black
+                  bars. Preserves full FOV (same as placing landscape footage on
+                  a portrait timeline in a video editor).
+    mode="crop" — center-crop to 9:16 (loses left/right of a 16:9 source).
+    """
+    if mode == "crop":
+        return (
+            "crop='min(iw,ih*9/16)':'ih':'max(0,(iw-ih*9/16)/2)':'0',"
+            "scale=1080:1920:flags=lanczos,format=yuv420p"
+        )
+    return (
+        "scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,"
+        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,format=yuv420p"
+    )
+
+
 def extract_clip(
     video_path: str,
     start_sec: float,
@@ -60,12 +79,13 @@ def extract_clip(
     preset: str = "medium",
     video_encoder: str | None = None,
     log: Callable[[str], None] | None = None,
+    reframe_mode: str = "fit",
 ) -> bool:
     """Extract a clip from video and convert to vertical 9:16."""
     duration = end_sec - start_sec
     output_path = str(Path(output_path).resolve())
 
-    crop_filter = "crop='min(iw,ih*9/16)':'ih':'max(0,(iw-ih*9/16)/2)':'0',scale=1080:1920:flags=lanczos,format=yuv420p"
+    vf = _build_vertical_filter(reframe_mode)
 
     encoder = video_encoder or "libx264"
     if encoder == "h264_nvenc":
@@ -75,7 +95,7 @@ def extract_clip(
 
     cmd = (
         [ffmpeg_path, "-y", "-ss", str(start_sec), "-i", video_path, "-t", str(duration)]
-        + ["-vf", crop_filter]
+        + ["-vf", vf]
         + vcodec_args
         + ["-c:a", "aac", "-b:a", "192k", output_path]
     )
@@ -112,6 +132,7 @@ def extract_all_clips(
     aspect = clip_cfg.get("aspect_ratio", "9:16")
     crf = clip_cfg.get("crf", 18)
     preset = clip_cfg.get("preset", "medium")
+    reframe = clip_cfg.get("reframe_mode", "fit")
     parallel_workers = perf_cfg.get("extract_parallel_workers", 2)
 
     ffmpeg_path, _ = _get_ffmpeg_bin(config)
@@ -151,13 +172,15 @@ def extract_all_clips(
         enc = video_encoder
         ok = extract_clip(
             video_path, hl["start"], hl["end"], path,
-            aspect, ffmpeg_path, crf, preset, enc, log=log
+            aspect, ffmpeg_path, crf, preset, enc, log=log,
+            reframe_mode=reframe,
         )
         if not ok and enc == "h264_nvenc":
             _log(log, "  NVENC failed, retrying with software encoder...")
             ok = extract_clip(
                 video_path, hl["start"], hl["end"], path,
-                aspect, ffmpeg_path, crf, preset, None, log=log
+                aspect, ffmpeg_path, crf, preset, None, log=log,
+                reframe_mode=reframe,
             )
         return idx, path, ok
 
@@ -176,13 +199,15 @@ def extract_all_clips(
             _log(log, f"  Extracting clip: {h['start']:.1f}s - {h['end']:.1f}s")
             ok = extract_clip(
                 video_path, h["start"], h["end"], out_path,
-                aspect, ffmpeg_path, crf, preset, video_encoder, log=log
+                aspect, ffmpeg_path, crf, preset, video_encoder, log=log,
+                reframe_mode=reframe,
             )
             if not ok and video_encoder == "h264_nvenc":
                 _log(log, "  NVENC failed, retrying with software encoder...")
                 ok = extract_clip(
                     video_path, h["start"], h["end"], out_path,
-                    aspect, ffmpeg_path, crf, preset, None, log=log
+                    aspect, ffmpeg_path, crf, preset, None, log=log,
+                    reframe_mode=reframe,
                 )
             output_paths[idx] = out_path if ok else None
             _log(log, f"    -> {Path(out_path).name}" if ok else "    -> Failed")
