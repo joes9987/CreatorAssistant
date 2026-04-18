@@ -66,12 +66,19 @@ def select_clips_to_upload(clip_paths: list[str], parent: tk.Misc | None = None)
     selected: list[str] = []
 
     def _safe_destroy():
-        try:
-            for after_id in dialog.tk.call("after", "info"):
-                dialog.after_cancel(after_id)
-        except Exception:
-            pass
-        dialog.destroy()
+        def _do_destroy():
+            try:
+                if not owns_root:
+                    dialog.grab_release()
+            except tk.TclError:
+                pass
+            try:
+                dialog.destroy()
+            except tk.TclError:
+                pass
+
+        # Defer destroy so we never tear down the button while its command is running.
+        dialog.after_idle(_do_destroy)
 
     def on_upload():
         nonlocal selected

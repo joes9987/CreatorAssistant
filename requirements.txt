@@ -1,4 +1,5 @@
 # CreatorAssistant - AI Clip Detection for League Videos
+customtkinter>=5.2.0
 opencv-python>=4.8.0
 numpy>=1.24.0
 librosa>=0.10.0

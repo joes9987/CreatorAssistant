@@ -15,8 +15,13 @@ clip:
   padding_after: 2
   min_clip_length: 15
   max_clip_length: 60
+  # Final frame aspect (1080-wide). Shorts/Reels/TikTok = 9:16.
   aspect_ratio: "9:16"
-  reframe_mode: "fit"    # "fit" = full FOV with black bars (like a video editor); "crop" = center-crop
+  # Default for Shorts: "crop" = strong vertical frame; "fit" = full 16:9 shrunk with letterbox.
+  reframe_mode: "crop"
+  # Only when reframe_mode is "crop". 10:16 = recommended balance (HUD/minimap + 9:16 delivery).
+  # Tighter: "9:16". Wider FOV: "11:16".
+  crop_aspect: "10:16"
   output_dir: "outputs"
   crf: 18
   preset: "slow"

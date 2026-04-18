@@ -85,7 +85,6 @@ def main() -> None:
         app.destroy()
         return
 
-    config = load_config(str(config_path))
     gate = _UploadGate(app)
     log_q: queue.Queue[str] = queue.Queue()
     worker_running = threading.Event()
@@ -255,6 +254,7 @@ def main() -> None:
         else:
             proc_btn.configure(state="normal")
             proc_all_btn.configure(state="normal")
+            upload_only_btn.configure(state="normal")
 
     def run_worker(paths: list[Path]) -> None:
         def worker() -> None:
@@ -278,6 +278,7 @@ def main() -> None:
         worker_running.set()
         proc_btn.configure(state="disabled")
         proc_all_btn.configure(state="disabled")
+        upload_only_btn.configure(state="disabled")
         threading.Thread(target=worker, daemon=True).start()
         poll_ui()
 
@@ -332,6 +333,7 @@ def main() -> None:
             worker_running.set()
             proc_btn.configure(state="disabled")
             proc_all_btn.configure(state="disabled")
+            upload_only_btn.configure(state="disabled")
             threading.Thread(target=_upload_only_worker, daemon=True).start()
             poll_ui()
         else:

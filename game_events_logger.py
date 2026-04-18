@@ -22,17 +22,11 @@ import urllib.request
 import ssl
 
 from app_paths import project_root
+from timer_utils import emit_log
 
 # Live Client Data API - runs on port 2999 during an active LoL match
 API_BASE = "https://127.0.0.1:2999"
 EVENTS_LOG_DIR = "eventlogs"
-
-
-def _log(log: Callable[[str], None] | None, msg: str) -> None:
-    if log:
-        log(msg)
-    else:
-        print(msg)
 
 
 def _connect_obs(
@@ -45,7 +39,7 @@ def _connect_obs(
     try:
         import obsws_python as obs
     except ImportError:
-        _log(log, "  OBS auto-stop: install obsws-python (pip install obsws-python)")
+        emit_log(log, "  OBS auto-stop: install obsws-python (pip install obsws-python)")
         return None, None
 
     cfg = (config or {}).get("game_events", {}).get("obs_websocket", {})
@@ -63,7 +57,7 @@ def _connect_obs(
         req_client = obs.ReqClient(host=host, port=port, password=password)
         _ = req_client.get_record_status()
     except Exception as e:
-        _log(
+        emit_log(
             log,
             f"  OBS auto-stop: could not connect ({e}). Enable WebSocket in OBS (Tools → WebSocket Server Settings).",
         )
@@ -76,19 +70,22 @@ def _connect_obs(
         return req_client, None
 
 
-def _on_recording_stopped(stop_event: threading.Event, log: Callable[[str], None] | None):
-    def _handler(_data):
-        _log(log, f"  OBS recording stopped at {datetime.now().strftime('%H:%M:%S')} - exiting")
-        stop_event.set()
+def _make_obs_handler(stop_event: threading.Event, log: Callable[[str], None] | None):
+    """Return a correctly-named callback for obsws-python's RecordStateChanged event.
 
-    return _handler
+    obsws-python dispatches events by matching the registered function's __name__
+    to on_<event_in_snake_case>.  RecordStateChanged → on_record_state_changed.
+    """
 
+    def on_record_state_changed(data):
+        state = getattr(data, "output_state", "")
+        if state == "OBS_WEBSOCKET_OUTPUT_STOPPED":
+            emit_log(log, f"  OBS recording stopped at {datetime.now().strftime('%H:%M:%S')} - exiting")
+            stop_event.set()
+        elif state == "OBS_WEBSOCKET_OUTPUT_STARTED":
+            emit_log(log, f"  OBS recording started at {datetime.now().strftime('%H:%M:%S')}")
 
-def _on_recording_started(log: Callable[[str], None] | None):
-    def _handler(_data):
-        _log(log, f"  OBS recording started at {datetime.now().strftime('%H:%M:%S')}")
-
-    return _handler
+    return on_record_state_changed
 
 
 def _build_player_maps(data):
@@ -171,22 +168,22 @@ def run_session(
     obs_req, obs_evt = _connect_obs(config, log)
     was_recording = False
     if obs_evt:
-        obs_evt.callback.register(_on_recording_started(log))
-        obs_evt.callback.register(_on_recording_stopped(stop_event, log))
+        obs_evt.callback.register(_make_obs_handler(stop_event, log))
+        emit_log(log, "  OBS event listener registered (RecordStateChanged)")
 
-    _log(log, "CreatorAssistant Game Events Logger")
-    _log(log, "=" * 40)
+    emit_log(log, "CreatorAssistant Game Events Logger")
+    emit_log(log, "=" * 40)
     if effective_name:
-        _log(log, f"Tracking kills for: {effective_name}")
+        emit_log(log, f"Tracking kills for: {effective_name}")
     else:
-        _log(log, "No summoner name set — logging ALL kills.")
-    _log(log, "Make sure League of Legends is in an active match.")
-    _log(log, "Start OBS recording when the game loads in.")
+        emit_log(log, "No summoner name set — logging ALL kills.")
+    emit_log(log, "Make sure League of Legends is in an active match.")
+    emit_log(log, "Start OBS recording when the game loads in.")
     if obs_req:
-        _log(log, "OBS WebSocket connected - will auto-exit when recording stops.")
+        emit_log(log, "OBS WebSocket connected - will auto-exit when recording stops.")
     else:
-        _log(log, "Use Stop and save in the app (or Ctrl+C in terminal) when the game ends.")
-    _log(log, "")
+        emit_log(log, "Use Stop and save in the app (or Ctrl+C in terminal) when the game ends.")
+    emit_log(log, "")
 
     output_file: Path | None = None
     try:
@@ -194,93 +191,91 @@ def run_session(
             data = fetch_live_data()
             if data is None:
                 was_disconnected = True
-                if stop_event.wait(timeout=2):
-                    break
-                continue
+            else:
+                if was_disconnected and session_start is not None:
+                    seen_event_ids.clear()
+                    emit_log(log, f"  New game detected at {datetime.now().strftime('%H:%M:%S')}")
+                was_disconnected = False
 
-            if was_disconnected and session_start is not None:
-                seen_event_ids.clear()
-                _log(log, f"  New game detected at {datetime.now().strftime('%H:%M:%S')}")
-            was_disconnected = False
+                if session_start is None:
+                    session_start = time.time()
+                    emit_log(log, f"Connected to game at {datetime.now().strftime('%H:%M:%S')}")
 
-            if session_start is None:
-                session_start = time.time()
-                _log(log, f"Connected to game at {datetime.now().strftime('%H:%M:%S')}")
+                events_data = data.get("events")
+                if isinstance(events_data, str):
+                    try:
+                        events_data = json.loads(events_data)
+                    except json.JSONDecodeError:
+                        events_data = {}
+                events_data = events_data or {}
+                events_list = events_data.get("Events") or []
 
-            events_data = data.get("events")
-            if isinstance(events_data, str):
-                try:
-                    events_data = json.loads(events_data)
-                except json.JSONDecodeError:
-                    events_data = {}
-            events_data = events_data or {}
-            events_list = events_data.get("Events") or []
+                game_data = data.get("gameData") or {}
+                current_game_time = game_data.get("gameTime", 0)
+                if game_start_time is None and current_game_time > 0:
+                    game_start_time = current_game_time
 
-            game_data = data.get("gameData") or {}
-            current_game_time = game_data.get("gameTime", 0)
-            if game_start_time is None and current_game_time > 0:
-                game_start_time = current_game_time
+                if local_player_champion is None:
+                    _, champion_by_summoner = _build_player_maps(data)
+                    active = data.get("activePlayer") or data.get("active_player") or {}
+                    if isinstance(active, dict):
+                        my_name = active.get("summonerName") or active.get("summoner_name") or active.get("gameName") or active.get("riotId") or ""
+                        if "#" in my_name:
+                            my_name = my_name.split("#")[0]
+                        if my_name:
+                            local_player_champion = champion_by_summoner.get(my_name) or ""
 
-            if local_player_champion is None:
-                _, champion_by_summoner = _build_player_maps(data)
-                active = data.get("activePlayer") or data.get("active_player") or {}
-                if isinstance(active, dict):
-                    my_name = active.get("summonerName") or active.get("summoner_name") or active.get("gameName") or active.get("riotId") or ""
-                    if "#" in my_name:
-                        my_name = my_name.split("#")[0]
-                    if my_name:
-                        local_player_champion = champion_by_summoner.get(my_name) or ""
+                for ev in events_list:
+                    eid = ev.get("EventID")
+                    if eid is None or eid in seen_event_ids:
+                        continue
+                    seen_event_ids.add(eid)
 
-            for ev in events_list:
-                eid = ev.get("EventID")
-                if eid is None or eid in seen_event_ids:
-                    continue
-                seen_event_ids.add(eid)
+                    event_name = ev.get("EventName", "")
+                    event_time = ev.get("EventTime", 0)
 
-                event_name = ev.get("EventName", "")
-                event_time = ev.get("EventTime", 0)
-
-                if event_name == "GameStart":
-                    game_start_time = event_time
-                    _log(log, f"  GameStart at {event_time:.1f}s")
-                elif event_name == "ChampionKill":
-                    player_by_pid, champion_by_summoner = _build_player_maps(data)
-                    killer_id = ev.get("KillerID") or ev.get("killerId")
-                    victim_id = ev.get("VictimID") or ev.get("victimId")
-                    killer_name = ev.get("KillerName") or ev.get("killerName")
-                    if not killer_name:
+                    if event_name == "GameStart":
+                        game_start_time = event_time
+                        emit_log(log, f"  GameStart at {event_time:.1f}s")
+                    elif event_name == "ChampionKill":
+                        player_by_pid, champion_by_summoner = _build_player_maps(data)
+                        killer_id = ev.get("KillerID") or ev.get("killerId")
+                        victim_id = ev.get("VictimID") or ev.get("victimId")
+                        killer_name = ev.get("KillerName") or ev.get("killerName")
+                        if not killer_name:
+                            info = player_by_pid.get(killer_id) if killer_id is not None else None
+                            killer_name = info["name"] if info else (f"Unknown#{killer_id}" if killer_id is not None else "Unknown")
+                        victim_name = ev.get("VictimName") or ev.get("victimName") or "?"
+                        if not victim_name or victim_name == "?":
+                            info = player_by_pid.get(victim_id) if victim_id is not None else None
+                            victim_name = info["name"] if info else (f"Unknown#{victim_id}" if victim_id is not None else "?")
                         info = player_by_pid.get(killer_id) if killer_id is not None else None
-                        killer_name = info["name"] if info else (f"Unknown#{killer_id}" if killer_id is not None else "Unknown")
-                    victim_name = ev.get("VictimName") or ev.get("victimName") or "?"
-                    if not victim_name or victim_name == "?":
+                        killer_champion = (info["champion"] if info else champion_by_summoner.get(killer_name)) or ""
                         info = player_by_pid.get(victim_id) if victim_id is not None else None
-                        victim_name = info["name"] if info else (f"Unknown#{victim_id}" if victim_id is not None else "?")
-                    info = player_by_pid.get(killer_id) if killer_id is not None else None
-                    killer_champion = (info["champion"] if info else champion_by_summoner.get(killer_name)) or ""
-                    info = player_by_pid.get(victim_id) if victim_id is not None else None
-                    victim_champion = (info["champion"] if info else champion_by_summoner.get(victim_name)) or ""
-                    kill_data = {
-                        "type": "ChampionKill",
-                        "game_time": event_time,
-                        "wall_clock": time.time(),
-                        "event_id": eid,
-                        "killer_name": killer_name,
-                        "victim_name": victim_name,
-                        "killer_champion": killer_champion or None,
-                        "victim_champion": victim_champion or None,
-                        "data": {k: v for k, v in ev.items() if k not in ("EventID", "EventName", "EventTime")},
-                    }
-                    events_log.append(kill_data)
-                    kc = f" ({killer_champion})" if killer_champion else ""
-                    vc = f" ({victim_champion})" if victim_champion else ""
-                    _log(log, f"  Kill: {killer_name}{kc} -> {victim_name}{vc} @ {event_time:.1f}s")
+                        victim_champion = (info["champion"] if info else champion_by_summoner.get(victim_name)) or ""
+                        kill_data = {
+                            "type": "ChampionKill",
+                            "game_time": event_time,
+                            "wall_clock": time.time(),
+                            "event_id": eid,
+                            "killer_name": killer_name,
+                            "victim_name": victim_name,
+                            "killer_champion": killer_champion or None,
+                            "victim_champion": victim_champion or None,
+                            "data": {k: v for k, v in ev.items() if k not in ("EventID", "EventName", "EventTime")},
+                        }
+                        events_log.append(kill_data)
+                        kc = f" ({killer_champion})" if killer_champion else ""
+                        vc = f" ({victim_champion})" if victim_champion else ""
+                        emit_log(log, f"  Kill: {killer_name}{kc} -> {victim_name}{vc} @ {event_time:.1f}s")
 
+            # OBS polling runs every iteration, even when the game API is unavailable
             if obs_req:
                 try:
                     status = obs_req.get_record_status()
                     active = getattr(status, "output_active", getattr(status, "outputActive", False))
                     if was_recording and not active:
-                        _log(
+                        emit_log(
                             log,
                             f"  OBS recording stopped (polled) at {datetime.now().strftime('%H:%M:%S')} - exiting",
                         )
@@ -289,11 +284,11 @@ def run_session(
                 except Exception:
                     pass
 
-            if stop_event.wait(timeout=1):
+            if stop_event.wait(timeout=1 if data is not None else 2):
                 break
 
     except KeyboardInterrupt:
-        _log(log, "\nStopping...")
+        emit_log(log, "\nStopping...")
 
     if events_log:
         output = {
@@ -308,9 +303,9 @@ def run_session(
         output_file = log_dir / f"events_{timestamp}.json"
         with open(output_file, "w") as f:
             json.dump(output, f, indent=2)
-        _log(log, f"Saved {len(events_log)} kill events to {output_file}")
+        emit_log(log, f"Saved {len(events_log)} kill events to {output_file}")
     else:
-        _log(log, "No kill events recorded.")
+        emit_log(log, "No kill events recorded.")
 
     return output_file
 

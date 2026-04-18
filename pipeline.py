@@ -1,19 +1,14 @@
 """Core clip workflow: detect → extract → optional uploads. Used by CLI and GUI."""
 
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 from app_paths import project_root
 from detect import detect_highlights, load_config
 from extract import extract_all_clips
+from timer_utils import emit_log, format_elapsed
 from ui_dialogs import select_clips_to_upload
-
-
-def _log(log: Callable[[str], None] | None, msg: str) -> None:
-    if log:
-        log(msg)
-    else:
-        print(msg)
 
 
 def clip_nums_for_upload_count(config: dict, num_selected: int) -> list[int] | None:
@@ -42,22 +37,22 @@ def process_one_video(
     Returns list of output clip paths (strings); empty if none.
     """
     video_path = str(Path(video_path).resolve())
-    _log(log, f"\nProcessing: {video_path}")
+    emit_log(log, f"\nProcessing: {video_path}")
 
-    _log(log, "Detecting highlights...")
+    emit_log(log, "Detecting highlights...")
     highlights = detect_highlights(video_path, config)
 
     if not highlights:
-        _log(log, "  No highlights detected. Try increasing 'sensitivity' in config.yaml")
+        emit_log(log, "  No highlights detected. Try increasing 'sensitivity' in config.yaml")
         return []
 
-    _log(log, f"  Found {len(highlights)} potential highlights")
+    emit_log(log, f"  Found {len(highlights)} potential highlights")
     for i, h in enumerate(highlights):
-        _log(log, f"    {i+1}. {h['start']:.1f}s - {h['end']:.1f}s (score: {h['score']:.3f})")
+        emit_log(log, f"    {i+1}. {h['start']:.1f}s - {h['end']:.1f}s (score: {h['score']:.3f})")
 
-    _log(log, "\nExtracting clips...")
+    emit_log(log, "\nExtracting clips...")
     outputs = extract_all_clips(video_path, highlights, config=config, log=log)
-    _log(log, f"\nDone! {len(outputs)} clips saved to {config['clip']['output_dir']}/")
+    emit_log(log, f"\nDone! {len(outputs)} clips saved to {config['clip']['output_dir']}/")
     return outputs
 
 
@@ -73,37 +68,40 @@ def run_uploads(
     ig_enabled = config.get("instagram", {}).get("enabled")
 
     if yt_enabled:
-        _log(log, f"\nUploading {len(to_upload)} clips to YouTube Shorts...")
+        emit_log(log, f"\nUploading {len(to_upload)} clip(s) to YouTube Shorts...")
+        t0 = time.perf_counter()
         try:
             from youtube_upload import upload_clips
 
-            uploaded, _ = upload_clips(to_upload, config, clip_nums=clip_nums)
+            uploaded, _ = upload_clips(to_upload, config, clip_nums=clip_nums, log=log)
             if uploaded:
-                _log(log, f"  Uploaded {len(uploaded)} clips to YouTube")
+                emit_log(log, f"  YouTube: {len(uploaded)} clip(s) uploaded in {format_elapsed(time.perf_counter() - t0)}")
         except Exception as e:
-            _log(log, f"  YouTube upload failed: {e}")
+            emit_log(log, f"  YouTube upload failed after {format_elapsed(time.perf_counter() - t0)}: {e}")
 
     if ttk_enabled:
-        _log(log, f"\nUploading {len(to_upload)} clips to TikTok...")
+        emit_log(log, f"\nUploading {len(to_upload)} clip(s) to TikTok...")
+        t0 = time.perf_counter()
         try:
             from tiktok_upload import upload_clips as tiktok_upload_clips
 
-            uploaded, _ = tiktok_upload_clips(to_upload, config, clip_nums=clip_nums)
+            uploaded, _ = tiktok_upload_clips(to_upload, config, clip_nums=clip_nums, log=log)
             if uploaded:
-                _log(log, f"  Uploaded {len(uploaded)} clips to TikTok")
+                emit_log(log, f"  TikTok: {len(uploaded)} clip(s) uploaded in {format_elapsed(time.perf_counter() - t0)}")
         except Exception as e:
-            _log(log, f"  TikTok upload failed: {e}")
+            emit_log(log, f"  TikTok upload failed after {format_elapsed(time.perf_counter() - t0)}: {e}")
 
     if ig_enabled:
-        _log(log, f"\nUploading {len(to_upload)} clips to Instagram Reels...")
+        emit_log(log, f"\nUploading {len(to_upload)} clip(s) to Instagram Reels...")
+        t0 = time.perf_counter()
         try:
             from instagram_upload import upload_clips as instagram_upload_clips
 
-            uploaded = instagram_upload_clips(to_upload, config, clip_nums=clip_nums)
+            uploaded = instagram_upload_clips(to_upload, config, clip_nums=clip_nums, log=log)
             if uploaded:
-                _log(log, f"  Uploaded {len(uploaded)} clips to Instagram")
+                emit_log(log, f"  Instagram: {len(uploaded)} clip(s) uploaded in {format_elapsed(time.perf_counter() - t0)}")
         except Exception as e:
-            _log(log, f"  Instagram upload failed: {e}")
+            emit_log(log, f"  Instagram upload failed after {format_elapsed(time.perf_counter() - t0)}: {e}")
 
     if clip_nums and (yt_enabled or ttk_enabled or ig_enabled):
         (project_root() / "clip_counter.txt").write_text(str(clip_nums[-1] + 1))
@@ -133,4 +131,4 @@ def process_videos(
                 clip_nums = clip_nums_for_upload_count(config, len(to_upload))
                 run_uploads(to_upload, config, clip_nums, log)
             else:
-                _log(log, "\nSkipped upload (none selected or cancelled)")
+                emit_log(log, "\nSkipped upload (none selected or cancelled)")

@@ -34,9 +34,11 @@ build/
 dist/
 *.spec
 *.spec.bak
-# Root onefile builds exceed GitHub's 100MB limit — build locally or use CI artifacts
+# Root PyInstaller output — build locally or use CI artifacts
 /CreatorAssistant.exe
 /CreatorAssistant.new.exe
+/CreatorAssistantGameLogger.exe
+/_internal/
 
 # IDE
 .idea/

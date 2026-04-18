@@ -3,9 +3,11 @@ YouTube Shorts upload for CreatorAssistant.
 Uses YouTube Data API v3 with OAuth 2.0. Vertical videos are auto-detected as Shorts.
 """
 
+import contextlib
 import os
 import random
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from app_paths import project_root
@@ -17,7 +19,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-from timer_utils import ElapsedTimer
+from timer_utils import emit_log, format_elapsed
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 CLIENT_SECRETS_FILE = "client_secrets.json"
@@ -26,7 +28,35 @@ CLIP_COUNTER_FILE = "clip_counter.txt"
 UPLOADED_TRACKING_FILE = "youtube_uploaded.json"
 
 
-def get_youtube_service(secrets_path: str | None = None, token_path: str = TOKEN_FILE, script_dir: str | Path | None = None):
+class _StdoutLinesToLog:
+    """File-like object: forward each line to emit_log (for OAuth library prints)."""
+
+    def __init__(self, log: Callable[[str], None] | None) -> None:
+        self._log = log
+        self._buf = ""
+
+    def write(self, s: str) -> int:
+        if not s:
+            return 0
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line.strip() and self._log:
+                emit_log(self._log, f"  {line.strip()}")
+        return len(s)
+
+    def flush(self) -> None:
+        if self._buf.strip() and self._log:
+            emit_log(self._log, f"  {self._buf.strip()}")
+            self._buf = ""
+
+
+def get_youtube_service(
+    secrets_path: str | None = None,
+    token_path: str = TOKEN_FILE,
+    script_dir: str | Path | None = None,
+    log: Callable[[str], None] | None = None,
+):
     """Authenticate and return a YouTube API service object."""
     base = Path(script_dir).resolve() if script_dir else project_root()
     secrets_path = secrets_path or CLIENT_SECRETS_FILE
@@ -39,6 +69,7 @@ def get_youtube_service(secrets_path: str | None = None, token_path: str = TOKEN
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            emit_log(log, "  YouTube: refreshing access token...")
             creds.refresh(Request())
         else:
             if not os.path.exists(secrets_path):
@@ -48,7 +79,11 @@ def get_youtube_service(secrets_path: str | None = None, token_path: str = TOKEN
                     "(Desktop app). Download JSON and save as client_secrets.json"
                 )
             flow = InstalledAppFlow.from_client_secrets_file(secrets_path, SCOPES)
-            creds = flow.run_local_server(port=0)
+            emit_log(log, "  YouTube: starting OAuth (browser should open; if not, use the URL below).")
+            out = _StdoutLinesToLog(log)
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                creds = flow.run_local_server(port=0)
+            out.flush()
         with open(token_path, "w") as f:
             f.write(creds.to_json())
     return build("youtube", "v3", credentials=creds)
@@ -138,6 +173,7 @@ def upload_clips(
     config: dict,
     clip_nums: list[int] | None = None,
     champion: str = "",
+    log: Callable[[str], None] | None = None,
 ) -> tuple[list[str], list[int]]:
     """
     Upload multiple clips. Returns (uploaded video IDs, successfully used clip numbers).
@@ -159,7 +195,7 @@ def upload_clips(
     for i, path in enumerate(clip_paths):
         resolved = str(Path(path).resolve())
         if resolved in uploaded_set:
-            print(f"  Skipping (already uploaded to YouTube): {Path(path).name}")
+            emit_log(log, f"  Skipping (already uploaded to YouTube): {Path(path).name}")
             continue
         clip_num = (clip_nums[i] if clip_nums and i < len(clip_nums) else None) or (
             _get_next_clip_num(counter_path, yt_cfg.get("clip_counter_start", 1)) + len(to_upload)
@@ -167,7 +203,7 @@ def upload_clips(
         to_upload.append((path, clip_num))
 
     if not to_upload:
-        print("  All clips already uploaded to YouTube")
+        emit_log(log, "  All clips already uploaded to YouTube")
         return [], []
 
     secrets_file = yt_cfg.get("client_secrets_file", "").strip() or CLIENT_SECRETS_FILE
@@ -178,31 +214,32 @@ def upload_clips(
     tags = yt_cfg.get("tags", ["League of Legends", "Gaming", "Shorts"])
     privacy = yt_cfg.get("privacy", "private")
 
-    youtube = get_youtube_service(secrets_path=secrets_file)
+    youtube = get_youtube_service(secrets_path=secrets_file, log=log)
     uploaded = []
     success_clip_nums = []
-    with ElapsedTimer("Uploading to YouTube") as timer:
-        for i, (path, clip_num) in enumerate(to_upload):
-            n = i + 1
-            total = len(to_upload)
-            title = title_template.format(
-                num=clip_num, n=n, total=total,
-                champion=champion, ChampionName=champion,
-                champion_suffix=champ_suffix,
-                creator=creator, username=creator,
-            )
-            timer.log(f"  Uploading clip {n}/{total} (#{clip_num}): {Path(path).name}")
-            try:
-                vid = upload_video(path, title=title, description=description, tags=tags, privacy=privacy, youtube=youtube)
-                if vid:
-                    uploaded.append(vid)
-                    success_clip_nums.append(clip_num)
-                    _mark_uploaded(tracking_path, path)
-                    if clip_nums is None:
-                        _save_clip_counter(counter_path, clip_num + 1)
-                    timer.log(f"    -> https://youtube.com/shorts/{vid}")
-                else:
-                    timer.log("    -> Failed")
-            except Exception as e:
-                timer.log(f"    -> Error: {e}")
+    for i, (path, clip_num) in enumerate(to_upload):
+        n = i + 1
+        total = len(to_upload)
+        title = title_template.format(
+            num=clip_num, n=n, total=total,
+            champion=champion, ChampionName=champion,
+            champion_suffix=champ_suffix,
+            creator=creator, username=creator,
+        )
+        emit_log(log, f"  Uploading clip {n}/{total} (#{clip_num}): {Path(path).name}")
+        clip_start = time.perf_counter()
+        try:
+            vid = upload_video(path, title=title, description=description, tags=tags, privacy=privacy, youtube=youtube)
+            if vid:
+                uploaded.append(vid)
+                success_clip_nums.append(clip_num)
+                _mark_uploaded(tracking_path, path)
+                if clip_nums is None:
+                    _save_clip_counter(counter_path, clip_num + 1)
+                dt = time.perf_counter() - clip_start
+                emit_log(log, f"    -> https://youtube.com/shorts/{vid}  ({format_elapsed(dt)})")
+            else:
+                emit_log(log, "    -> Failed")
+        except Exception as e:
+            emit_log(log, f"    -> Error: {e}")
     return uploaded, success_clip_nums

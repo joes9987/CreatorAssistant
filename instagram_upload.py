@@ -9,6 +9,7 @@ import json
 import os
 import string
 import time
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from app_paths import project_root
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
+
+from timer_utils import emit_log, format_elapsed
 
 
 class _SafeFormatter(string.Formatter):
@@ -86,7 +89,9 @@ def _save_token(token_path: str, token_data: dict) -> None:
 
 # ── OAuth flow (Instagram Login) ─────────────────────────────────────────
 
-def _run_instagram_oauth(app_id: str, app_secret: str, redirect_uri: str) -> tuple[str, str]:
+def _run_instagram_oauth(
+    app_id: str, app_secret: str, redirect_uri: str, log: Callable[[str], None] | None = None,
+) -> tuple[str, str]:
     """Run Instagram Login OAuth flow. Opens browser URL, catches callback.
     Returns (short_lived_access_token, ig_user_id)."""
 
@@ -97,10 +102,10 @@ def _run_instagram_oauth(app_id: str, app_secret: str, redirect_uri: str) -> tup
         "scope": "instagram_basic,instagram_content_publish",
     }
     auth_url = f"{IG_AUTH_URL}?{urlencode(auth_params)}"
-    print(f"  Open this URL in your browser to authorize Instagram:")
-    print(f"  {auth_url}")
-    print(f"\n  Redirect URI: {redirect_uri}")
-    print(f"  If error: In Meta App Dashboard > Instagram > Instagram Login, add this exact redirect URI.")
+    emit_log(log, "  Instagram: open this URL in your browser to authorize:")
+    emit_log(log, f"  {auth_url}")
+    emit_log(log, f"  Redirect URI: {redirect_uri}")
+    emit_log(log, "  If error: In Meta App Dashboard > Instagram > Instagram Login, add this exact redirect URI.")
 
     # Parse port from redirect_uri
     parsed = urlparse(redirect_uri)
@@ -116,7 +121,7 @@ def _run_instagram_oauth(app_id: str, app_secret: str, redirect_uri: str) -> tup
             error = params.get("error", [None])[0]
             error_desc = params.get("error_description", [None])[0]
             if error:
-                print(f"  Instagram callback error: {error} - {error_desc}")
+                emit_log(log, f"  Instagram callback error: {error} - {error_desc}")
             if code:
                 code_received.append(code)
             self.send_response(200)
@@ -128,7 +133,7 @@ def _run_instagram_oauth(app_id: str, app_secret: str, redirect_uri: str) -> tup
             pass
 
     server = HTTPServer(("127.0.0.1", port), CallbackHandler)
-    print(f"  Waiting for authorization (visit the URL above)...")
+    emit_log(log, "  Instagram: waiting for authorization (visit the URL above)...")
     for _ in range(10):
         server.handle_request()
         if code_received:
@@ -197,7 +202,7 @@ def _refresh_long_lived_token(token: str) -> tuple[str, int]:
 
 # ── Token management ─────────────────────────────────────────────────────
 
-def get_access_token(config: dict) -> str:
+def get_access_token(config: dict, log: Callable[[str], None] | None = None) -> str:
     """
     Get a valid Instagram access token.
     Priority: saved long-lived token → refresh → OAuth flow → config fallback.
@@ -224,10 +229,10 @@ def get_access_token(config: dict) -> str:
                     "ig_user_id": saved.get("ig_user_id", ""),
                     "expires_at": time.time() + expires_in,
                 })
-                print("  Refreshed long-lived Instagram token")
+                emit_log(log, "  Refreshed long-lived Instagram token")
                 return new_token
             except Exception:
-                print("  Saved Instagram token expired, re-authenticating...")
+                emit_log(log, "  Saved Instagram token expired, re-authenticating...")
         else:
             return token
 
@@ -245,7 +250,7 @@ def get_access_token(config: dict) -> str:
                 "ig_user_id": ig_cfg.get("ig_user_id", ""),
                 "expires_at": time.time() + expires_in,
             })
-            print("  Exchanged short-lived token for long-lived Instagram token (valid ~60 days)")
+            emit_log(log, "  Exchanged short-lived token for long-lived Instagram token (valid ~60 days)")
             return long_token
         except Exception as exchange_err:
             try:
@@ -255,15 +260,17 @@ def get_access_token(config: dict) -> str:
                     "ig_user_id": ig_cfg.get("ig_user_id", ""),
                     "expires_at": time.time() + expires_in,
                 })
-                print(
+                emit_log(
+                    log,
                     "  Refreshed long-lived Instagram token (config token was already long-lived; "
-                    "exchange only applies to short-lived tokens)"
+                    "exchange only applies to short-lived tokens)",
                 )
                 return new_token
             except Exception:
-                print(
+                emit_log(
+                    log,
                     f"  Note: Could not exchange or refresh Instagram token ({exchange_err}). "
-                    "Using config token directly."
+                    "Using config token directly.",
                 )
                 return config_token
 
@@ -334,7 +341,7 @@ _TEMP_HOSTS = [
 ]
 
 
-def _upload_to_temp_host(file_path: str) -> str:
+def _upload_to_temp_host(file_path: str, log: Callable[[str], None] | None = None) -> str:
     """Upload a file to a temporary public host and return a direct-download URL.
 
     Tries each host up to ``_MAX_ATTEMPTS_PER_HOST`` times with exponential
@@ -349,10 +356,10 @@ def _upload_to_temp_host(file_path: str) -> str:
         for attempt in range(1, _MAX_ATTEMPTS_PER_HOST + 1):
             try:
                 if attempt > 1:
-                    print(f"    Retrying {host_name} (attempt {attempt}/{_MAX_ATTEMPTS_PER_HOST})...")
+                    emit_log(log, f"    Retrying {host_name} (attempt {attempt}/{_MAX_ATTEMPTS_PER_HOST})...")
                 url = uploader(path, timeout)
                 if attempt > 1 or host_name != _TEMP_HOSTS[0][0]:
-                    print(f"    Uploaded via {host_name}")
+                    emit_log(log, f"    Uploaded via {host_name}")
                 return url
             except _RETRYABLE_EXCEPTIONS as e:
                 last_err = e
@@ -365,7 +372,7 @@ def _upload_to_temp_host(file_path: str) -> str:
                 break
         msg = f"{host_name}: {last_err}"
         all_errors.append(msg)
-        print(f"    {host_name} failed after {attempt} attempt(s), trying next host...")
+        emit_log(log, f"    {host_name} failed after {attempt} attempt(s), trying next host...")
 
     raise RuntimeError(
         f"All temp hosts failed for {path.name}. "
@@ -433,14 +440,20 @@ def _publish_container(ig_user_id: str, container_id: str, access_token: str) ->
     return media_id
 
 
-def upload_reel(file_path: str, ig_user_id: str, access_token: str, caption: str = "") -> str:
+def upload_reel(
+    file_path: str,
+    ig_user_id: str,
+    access_token: str,
+    caption: str = "",
+    log: Callable[[str], None] | None = None,
+) -> str:
     """
     Upload a single Reel from a local file. Returns the published media ID.
 
     Flow: upload to temp host → create container with video_url → wait → publish.
     """
     # Step 1: Upload to temporary public host (Instagram needs a URL)
-    video_url = _upload_to_temp_host(file_path)
+    video_url = _upload_to_temp_host(file_path, log=log)
 
     # Step 2: Create container with the public video URL
     container_id = _create_reel_container(ig_user_id, access_token, caption, video_url)
@@ -452,7 +465,12 @@ def upload_reel(file_path: str, ig_user_id: str, access_token: str, caption: str
     return _publish_container(ig_user_id, container_id, access_token)
 
 
-def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | None = None) -> list[str]:
+def upload_clips(
+    clip_paths: list[str],
+    config: dict,
+    clip_nums: list[int] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> list[str]:
     """Upload clips to Instagram Reels. Returns list of media IDs. Pass clip_nums to share numbering."""
     ig_cfg = config.get("instagram", {})
     if not ig_cfg.get("enabled", False):
@@ -474,7 +492,7 @@ def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | Non
             start = counter_start
         clip_numbers = [start + i for i in range(len(clip_paths))]
 
-    access_token = get_access_token(config)
+    access_token = get_access_token(config, log=log)
 
     # If ig_user_id wasn't in config, try to get it from saved token data
     if not ig_user_id:
@@ -496,28 +514,30 @@ def upload_clips(clip_paths: list[str], config: dict, clip_nums: list[int] | Non
         resolved = str(Path(path).resolve())
         clip_num = clip_numbers[i] if i < len(clip_numbers) else clip_numbers[-1] + i
         if resolved in uploaded_set:
-            print(f"  Skipping (already uploaded to Instagram): {Path(path).name}")
+            emit_log(log, f"  Skipping (already uploaded to Instagram): {Path(path).name}")
             continue
         to_upload.append((path, clip_num))
 
     if not to_upload:
-        print("  All clips already uploaded to Instagram")
+        emit_log(log, "  All clips already uploaded to Instagram")
         return []
 
     uploaded = []
     for i, (path, clip_num) in enumerate(to_upload):
         caption = _SafeFormatter().format(title_template, num=clip_num, n=i + 1, total=len(to_upload))
-        print(f"  Uploading to Instagram {i+1}/{len(to_upload)} (#{clip_num}): {Path(path).name}")
+        emit_log(log, f"  Uploading to Instagram {i+1}/{len(to_upload)} (#{clip_num}): {Path(path).name}")
+        clip_start = time.perf_counter()
         try:
-            media_id = upload_reel(path, ig_user_id, access_token, caption=caption)
+            media_id = upload_reel(path, ig_user_id, access_token, caption=caption, log=log)
             if media_id:
                 uploaded.append(media_id)
                 _mark_uploaded(tracking_path, path)
-                print(f"    -> Posted to Instagram (ID: {media_id})")
+                dt = time.perf_counter() - clip_start
+                emit_log(log, f"    -> Posted to Instagram (ID: {media_id})  ({format_elapsed(dt)})")
             else:
-                print(f"    -> Failed")
+                emit_log(log, "    -> Failed")
         except Exception as e:
-            print(f"    -> Error: {e}")
+            emit_log(log, f"    -> Error: {e}")
 
     if clip_nums is None and uploaded and to_upload:
         last_num = max(num for _, num in to_upload)
