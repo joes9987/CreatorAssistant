@@ -3,58 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CreatorAssistant — Highlight Clipping for League of Legends Creators</title>
-  <meta name="description" content="CreatorAssistant helps League of Legends streamers and creators automatically detect highlights, extract vertical clips, and publish to YouTube Shorts, TikTok, and Instagram Reels.">
+  <title>CreatorAssistant — Clip and Publish League of Legends Highlights</title>
+  <meta name="description" content="CreatorAssistant is a free Windows desktop app that detects League of Legends highlights, converts them to vertical clips, and publishes to YouTube Shorts, TikTok, and Instagram Reels.">
+  <meta property="og:title" content="CreatorAssistant — Clip and Publish League of Legends Highlights">
+  <meta property="og:description" content="Detect highlights, convert to vertical clips, and publish to YouTube Shorts, TikTok, and Instagram Reels — all from your Windows PC.">
+  <meta property="og:image" content="https://creator-assistant.vercel.app/assets/CreatorAssistant-icon.png">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/png" href="assets/CreatorAssistant-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="container">
-    <header>
+
+    <header class="hero">
+      <img src="assets/CreatorAssistant-icon.png" alt="CreatorAssistant icon" class="hero-icon">
       <h1>CreatorAssistant</h1>
-      <p class="tagline">Clip, convert, and publish gameplay highlights — built for creators</p>
+      <p class="tagline">A free Windows desktop app that turns League of Legends gameplay into vertical clips and publishes them to YouTube Shorts, TikTok, and Instagram Reels.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="https://github.com/joes9987/CreatorAssistant/releases" target="_blank" rel="noopener">Download</a>
+        <a class="btn secondary" href="https://github.com/joes9987/CreatorAssistant/" target="_blank" rel="noopener">View on GitHub</a>
+      </div>
+      <p class="meta">Windows 10 / 11 &nbsp;·&nbsp; Free &nbsp;·&nbsp; Local processing</p>
     </header>
 
-    <div class="card">
+    <section class="card">
       <h2>What It Does</h2>
-      <p>CreatorAssistant is a free desktop tool for content creators. It can automatically detect highlights in League of Legends recordings and extract vertical clips — or you can skip clipping entirely and use it to upload any video straight to YouTube Shorts, TikTok, and Instagram Reels.</p>
-      <p>League creators get the full workflow: record with OBS, let CreatorAssistant find kills and team fights, and publish 9:16 clips in one step. Other creators can use it as a simple multi-platform uploader.</p>
-    </div>
+      <p>CreatorAssistant is a desktop tool for League of Legends creators. Record your matches with OBS, point CreatorAssistant at the file, and it will detect highlight moments (kills, team fights), cut them into vertical 9:16 clips, and optionally publish them to your YouTube, TikTok, and Instagram accounts. You approve every post.</p>
+      <p>Not a League player? You can also skip detection entirely and use CreatorAssistant as a one-click multi-platform uploader for any video file.</p>
+    </section>
 
-    <div class="card">
+    <section class="card screenshots">
+      <h2>The App</h2>
+      <div class="shots">
+        <figure>
+          <img src="assets/screenshot-main.png" alt="CreatorAssistant main window: select a recording, process selected, process all, or upload files (skip clipping)">
+          <figcaption>Main window — pick recordings and process or upload.</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/screenshot-logger.png" alt="CreatorAssistant Game Logger: enter your summoner name and start logging match events">
+          <figcaption>Game Logger — captures kill timestamps from Riot's local API while you play.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>How It Works</h2>
       <ul class="feature-list">
-        <li><strong>Record</strong> — Capture your League games with OBS (or any recorder).</li>
-        <li><strong>Detect</strong> — CreatorAssistant identifies highlight moments using live kill data from Riot's API or AI-based audio and motion analysis.</li>
-        <li><strong>Extract</strong> — Clips are cut and converted to 9:16 vertical format, optimized for short-form platforms.</li>
-        <li><strong>Publish</strong> — Upload clips to YouTube Shorts, TikTok, and Instagram Reels with one-click OAuth. You stay in control of what gets posted.</li>
-        <li><strong>Direct upload</strong> — Already have clips ready? Skip detection and extraction — just pick your files and upload to all platforms at once.</li>
+        <li><strong>Record</strong> — capture your League games with OBS or any recorder.</li>
+        <li><strong>Detect</strong> — CreatorAssistant finds highlights using live kill data from Riot's API or AI-based audio and motion analysis on the recording.</li>
+        <li><strong>Extract</strong> — clips are cut and converted to 9:16 vertical, ready for short-form platforms.</li>
+        <li><strong>Publish</strong> — sign in to YouTube, TikTok, and Instagram once, then upload selected clips with one click.</li>
+        <li><strong>Direct upload</strong> — already have clips? Skip detection and upload any video file straight to all three platforms.</li>
       </ul>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>Platform Integrations</h2>
-      <p><strong>YouTube Shorts</strong> — Sign in with Google OAuth. Clips upload directly to your channel with custom titles, descriptions, and tags.</p>
-      <p><strong>TikTok</strong> — CreatorAssistant uses TikTok's Login Kit so you can authorize the app to post clips to your account. You sign in via browser, grant access, and the app uploads on your behalf. All video processing happens locally — only the final clip is sent to TikTok.</p>
-      <p><strong>Instagram Reels</strong> — Connect your Instagram account through Meta's OAuth flow. Clips are uploaded as Reels with configurable captions.</p>
-    </div>
-
-    <div class="card">
-      <h2>Who It's For</h2>
-      <p>CreatorAssistant is built primarily for League of Legends creators, but any content creator can use it. The highlight detection and game event logging are League-specific, while the upload workflow works with any video file. Whether you're a streamer building a highlights channel, a casual player sharing plays, or a creator who just needs a quick way to post to multiple platforms — this tool is for you.</p>
-    </div>
-
-    <div class="card">
-      <h2>Privacy &amp; Security</h2>
-      <p>All video processing runs locally on your device. OAuth tokens for YouTube, TikTok, and Instagram are stored on your machine and never leave it. CreatorAssistant does not collect analytics, telemetry, or personal data.</p>
-    </div>
-
-    <div class="card">
-      <h2>Legal</h2>
-      <ul class="links">
-        <li><a href="CreatorAssistant-terms.html">Terms of Service</a></li>
-        <li><a href="CreatorAssistant-privacy.html">Privacy Policy</a></li>
+    <section class="card">
+      <h2>TikTok Integration</h2>
+      <p>CreatorAssistant uses TikTok's <strong>Login Kit</strong> and <strong>Content Posting API</strong>. When you enable TikTok in the app and start an upload, your default browser opens TikTok's authorization page so you can sign in and grant access. Once authorized, the app uploads the clip you selected to your account.</p>
+      <p>The scopes requested are:</p>
+      <ul class="feature-list">
+        <li><strong>user.info.basic</strong> — read your profile (open id, display name) so the app can confirm which account it is posting to.</li>
+        <li><strong>video.upload</strong> — send a clip to your account as a draft for you to review and post.</li>
+        <li><strong>video.publish</strong> — directly post a clip when you choose to.</li>
       </ul>
-    </div>
+      <p>All video processing — detection, cutting, vertical conversion — runs on your machine. The only thing sent to TikTok is the final clip you chose to upload.</p>
+    </section>
+
+    <section class="card">
+      <h2>Privacy and Security</h2>
+      <p>CreatorAssistant does not collect analytics, telemetry, or personal data. OAuth tokens for YouTube, TikTok, and Instagram are stored locally on your machine and never leave it. There is no CreatorAssistant account or server.</p>
+    </section>
+
+    <section class="card">
+      <h2>Support</h2>
+      <p>Questions, bug reports, or feature requests:</p>
+      <ul class="feature-list">
+        <li>Email: <a class="inline-link" href="mailto:singhjoe57@gmail.com">singhjoe57@gmail.com</a></li>
+        <li>GitHub Issues: <a class="inline-link" href="https://github.com/joes9987/CreatorAssistant/issues" target="_blank" rel="noopener">github.com/joes9987/CreatorAssistant/issues</a></li>
+      </ul>
+    </section>
+
+    <footer class="footer">
+      <p>&copy; 2026 CreatorAssistant &nbsp;·&nbsp;
+        <a class="inline-link" href="CreatorAssistant-terms.html">Terms of Service</a> &nbsp;·&nbsp;
+        <a class="inline-link" href="CreatorAssistant-privacy.html">Privacy Policy</a>
+      </p>
+    </footer>
+
   </div>
 </body>
 </html>
