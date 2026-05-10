@@ -34,6 +34,16 @@ game_events:
   prefer_events_over_ai: true
   filter_my_kills_only: true
   player_summoner_name: "YOUR_SUMMONER_NAME"
+  obs_websocket:
+    enabled: true
+    host: "localhost"
+    port: 4455
+    password: ""
+    # Requires OBS running with Tools → WebSocket Server Settings enabled.
+    auto_start_recording: false  # Start Record on GameStart (or game clock ≥ mid_game_join_recording_game_time_sec)
+    auto_stop_recording_on_game_end: false  # Stop Record on GameEnd or Live Client disconnect (debounced)
+    live_client_disconnect_stop_seconds: 8   # How long API must be down before treating match as ended
+    mid_game_join_recording_game_time_sec: 5  # Fallback start if GameStart event was missed (logger started late)
 
 # YouTube Shorts upload
 youtube:

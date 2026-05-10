@@ -7,6 +7,11 @@ Uses the same data source as Overwolf's game events (Riot's local API).
 
 When OBS WebSocket is available, detects RecordingStarted/RecordingStopped and
 automatically exits when recording stops (no Ctrl+C needed).
+
+Optional (game_events.obs_websocket): auto_start_recording calls OBS Start Record when the
+Live Client reports GameStart (with a mid-game fallback if GameStart was missed). Pair with
+auto_stop_recording_on_game_end to Stop Record on GameEnd or after Live Client disconnects.
+OBS must be running with WebSocket enabled for either control path.
 """
 
 from __future__ import annotations
@@ -140,6 +145,7 @@ def run_session(
     """
     Run the logger. Polls the API every 1 second, logs new ChampionKill events.
     Stops when stop_event is set, Ctrl+C, or OBS recording stops (if WebSocket works).
+    Optional OBS WebSocket: auto-start on GameStart, auto-stop on GameEnd / client disconnect.
     Saves to eventlogs/events_YYYY-MM-DD_HH-MM-SS.json by default.
     Returns path to saved JSON if kills were logged, else None.
 
@@ -167,6 +173,56 @@ def run_session(
         stop_event = threading.Event()
     obs_req, obs_evt = _connect_obs(config, log)
     was_recording = False
+    obs_ws_cfg = (config.get("game_events") or {}).get("obs_websocket") or {}
+    auto_start_recording = bool(obs_ws_cfg.get("auto_start_recording", False))
+    auto_stop_recording = bool(obs_ws_cfg.get("auto_stop_recording_on_game_end", False))
+    disconnect_threshold = float(obs_ws_cfg.get("live_client_disconnect_stop_seconds", 8))
+    mid_game_join_sec = float(obs_ws_cfg.get("mid_game_join_recording_game_time_sec", 5))
+
+    lol_match_in_progress = False  # GameStart seen or game clock passed mid_game_join threshold
+    obs_start_done = False
+    obs_stop_done = False
+    disconnect_since: float | None = None
+
+    def try_obs_start_once():
+        nonlocal obs_start_done
+        if not auto_start_recording or not obs_req or obs_start_done:
+            return
+        try:
+            status = obs_req.get_record_status()
+            active = getattr(status, "output_active", getattr(status, "outputActive", False))
+            if active:
+                emit_log(
+                    log,
+                    f"  OBS: already recording at {datetime.now().strftime('%H:%M:%S')} — skipping auto-start",
+                )
+                obs_start_done = True
+                return
+            obs_req.start_record()
+            emit_log(
+                log,
+                f"  OBS: started recording automatically at {datetime.now().strftime('%H:%M:%S')}",
+            )
+        except Exception as e:
+            emit_log(log, f"  OBS: Start Record failed ({e})")
+        obs_start_done = True
+
+    def try_obs_stop(reason: str):
+        nonlocal obs_stop_done
+        if not auto_stop_recording or not obs_req or obs_stop_done:
+            return
+        try:
+            status = obs_req.get_record_status()
+            active = getattr(status, "output_active", getattr(status, "outputActive", False))
+            if not active:
+                obs_stop_done = True
+                return
+            obs_req.stop_record()
+            emit_log(log, f"  OBS: Stop Record ({reason})")
+        except Exception as e:
+            emit_log(log, f"  OBS: Stop Record failed ({e})")
+        obs_stop_done = True
+
     if obs_evt:
         obs_evt.callback.register(_make_obs_handler(stop_event, log))
         emit_log(log, "  OBS event listener registered (RecordStateChanged)")
@@ -178,9 +234,24 @@ def run_session(
     else:
         emit_log(log, "No summoner name set — logging ALL kills.")
     emit_log(log, "Make sure League of Legends is in an active match.")
-    emit_log(log, "Start OBS recording when the game loads in.")
+    if obs_req and auto_start_recording:
+        emit_log(
+            log,
+            "OBS WebSocket connected — recording will start on GameStart "
+            f"(or once game clock ≥ {mid_game_join_sec:.0f}s if you joined mid-game).",
+        )
+    elif obs_req:
+        emit_log(log, "OBS WebSocket connected — start recording manually when ready (or set auto_start_recording in config).")
+    else:
+        emit_log(log, "Start OBS recording when the game loads in (if OBS WebSocket is unavailable).")
+    if obs_req and auto_stop_recording:
+        emit_log(
+            log,
+            "OBS will stop recording on GameEnd or if Live Client disconnects for "
+            f"~{disconnect_threshold:.0f}s after the match was live.",
+        )
     if obs_req:
-        emit_log(log, "OBS WebSocket connected - will auto-exit when recording stops.")
+        emit_log(log, "Will auto-exit when OBS recording stops.")
     else:
         emit_log(log, "Use Stop and save in the app (or Ctrl+C in terminal) when the game ends.")
     emit_log(log, "")
@@ -191,9 +262,19 @@ def run_session(
             data = fetch_live_data()
             if data is None:
                 was_disconnected = True
+                if obs_req and auto_stop_recording and lol_match_in_progress and not obs_stop_done:
+                    if disconnect_since is None:
+                        disconnect_since = time.time()
+                    elif time.time() - disconnect_since >= disconnect_threshold:
+                        try_obs_stop("Live Client disconnected — match likely ended")
+                        disconnect_since = None
             else:
+                disconnect_since = None
                 if was_disconnected and session_start is not None:
                     seen_event_ids.clear()
+                    lol_match_in_progress = False
+                    obs_start_done = False
+                    obs_stop_done = False
                     emit_log(log, f"  New game detected at {datetime.now().strftime('%H:%M:%S')}")
                 was_disconnected = False
 
@@ -236,7 +317,13 @@ def run_session(
 
                     if event_name == "GameStart":
                         game_start_time = event_time
+                        lol_match_in_progress = True
                         emit_log(log, f"  GameStart at {event_time:.1f}s")
+                        try_obs_start_once()
+                    elif event_name == "GameEnd":
+                        lol_match_in_progress = True
+                        emit_log(log, f"  GameEnd at {event_time:.1f}s")
+                        try_obs_stop("GameEnd event")
                     elif event_name == "ChampionKill":
                         player_by_pid, champion_by_summoner = _build_player_maps(data)
                         killer_id = ev.get("KillerID") or ev.get("killerId")
@@ -269,11 +356,28 @@ def run_session(
                         vc = f" ({victim_champion})" if victim_champion else ""
                         emit_log(log, f"  Kill: {killer_name}{kc} -> {victim_name}{vc} @ {event_time:.1f}s")
 
+                # Mid-game join: GameStart may have scrolled off the Events buffer — start once by clock.
+                if (
+                    auto_start_recording
+                    and obs_req
+                    and not obs_start_done
+                    and data is not None
+                ):
+                    gt_join = float((data.get("gameData") or {}).get("gameTime") or 0)
+                    if gt_join >= mid_game_join_sec:
+                        lol_match_in_progress = True
+                        emit_log(
+                            log,
+                            f"  Game clock ≥ {mid_game_join_sec:.0f}s (GameStart may have been missed) — starting OBS recording",
+                        )
+                        try_obs_start_once()
+
             # OBS polling runs every iteration, even when the game API is unavailable
             if obs_req:
                 try:
                     status = obs_req.get_record_status()
                     active = getattr(status, "output_active", getattr(status, "outputActive", False))
+
                     if was_recording and not active:
                         emit_log(
                             log,
