@@ -65,13 +65,25 @@ tiktok:
   title_template: "League Clip {num}"
   privacy: "PUBLIC_TO_EVERYONE"
 
-# Instagram Reels upload
+# Instagram Reels upload (Instagram API with Instagram Login)
+# One-time Meta dashboard setup (API setup with Instagram login):
+#   1. Step 4 — OAuth redirect URI: https://creator-assistant.vercel.app/callback.html
+#      (exact match; also add under Facebook Login for Business → Valid OAuth Redirect URIs if shown)
+#   2. App settings → Basic → Native/desktop app ON; Authorize callback URL = same HTTPS URL above
+#   3. Copy Instagram App ID + Secret from this setup page (NOT the top-level Facebook App ID)
+#   4. Enable instagram_business_content_publish scope; add your IG professional account in Step 2
+# After first browser login, tokens are saved to instagram_token.json and auto-refreshed (~60 days).
 instagram:
   enabled: false
-  app_id: "YOUR_META_APP_ID"
-  app_secret: "YOUR_META_APP_SECRET"
-  access_token: "YOUR_INSTAGRAM_ACCESS_TOKEN"
+  instagram_app_id: "YOUR_INSTAGRAM_APP_ID"
+  instagram_app_secret: "YOUR_INSTAGRAM_APP_SECRET"
+  # Legacy aliases still supported: app_id / app_secret
+  redirect_uri: "https://creator-assistant.vercel.app/callback.html"
+  local_oauth_port: 8081  # Local listener; must match LOCAL_PORT in callback.html on Vercel
+  oauth_scopes: "instagram_business_basic,instagram_business_content_publish"
   ig_user_id: "YOUR_INSTAGRAM_USER_ID"
+  # Leave empty — app uses instagram_token.json + OAuth (do not paste dashboard tokens)
+  access_token: ""
   title_template: "League Clip {num}"
 
 # AI detection

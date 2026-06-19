@@ -33,8 +33,10 @@ GRAPH_API_BASE = "https://graph.instagram.com/v22.0"
 _GRAPH_RQ_TIMEOUT = (60.0, 300.0)
 TOKEN_FILE = "instagram_token.json"
 IG_UPLOADED_FILE = "instagram_uploaded.json"
-IG_AUTH_URL = "https://www.instagram.com/oauth/authorize"
+IG_AUTH_URL = "https://api.instagram.com/oauth/authorize"
 IG_TOKEN_URL = "https://api.instagram.com/oauth/access_token"
+# Instagram Login (2024+). Legacy instagram_basic / instagram_content_publish were deprecated.
+DEFAULT_OAUTH_SCOPES = "instagram_business_basic,instagram_business_content_publish"
 
 
 def _load_uploaded_paths(tracking_path: Path) -> set[str]:
@@ -89,27 +91,57 @@ def _save_token(token_path: str, token_data: dict) -> None:
 
 # ── OAuth flow (Instagram Login) ─────────────────────────────────────────
 
+def _instagram_app_credentials(ig_cfg: dict) -> tuple[str, str]:
+    """Return (app_id, app_secret) for Instagram Login OAuth.
+
+    Prefer instagram_app_id / instagram_app_secret when set — these must come from
+    Meta App Dashboard → Instagram → API setup with Instagram Login, NOT the top-level
+    Facebook App ID on the app overview page.
+    """
+    app_id = (ig_cfg.get("instagram_app_id") or ig_cfg.get("app_id") or "").strip()
+    app_secret = (ig_cfg.get("instagram_app_secret") or ig_cfg.get("app_secret") or "").strip()
+    return app_id, app_secret
+
+
+def _instagram_oauth_scopes(ig_cfg: dict) -> str:
+    return (ig_cfg.get("oauth_scopes") or DEFAULT_OAUTH_SCOPES).strip()
+
+
 def _run_instagram_oauth(
-    app_id: str, app_secret: str, redirect_uri: str, log: Callable[[str], None] | None = None,
+    app_id: str,
+    app_secret: str,
+    redirect_uri: str,
+    scopes: str,
+    local_oauth_port: int = 8081,
+    log: Callable[[str], None] | None = None,
 ) -> tuple[str, str]:
-    """Run Instagram Login OAuth flow. Opens browser URL, catches callback.
+    """Run Instagram Login OAuth flow. Opens browser URL, catches callback on localhost.
+    redirect_uri is the public HTTPS URI registered with Meta; local_oauth_port receives
+    the code after callback.html forwards the browser from Vercel.
     Returns (short_lived_access_token, ig_user_id)."""
 
     auth_params = {
         "client_id": app_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "instagram_basic,instagram_content_publish",
+        "scope": scopes,
     }
     auth_url = f"{IG_AUTH_URL}?{urlencode(auth_params)}"
     emit_log(log, "  Instagram: open this URL in your browser to authorize:")
     emit_log(log, f"  {auth_url}")
-    emit_log(log, f"  Redirect URI: {redirect_uri}")
-    emit_log(log, "  If error: In Meta App Dashboard > Instagram > Instagram Login, add this exact redirect URI.")
-
-    # Parse port from redirect_uri
-    parsed = urlparse(redirect_uri)
-    port = parsed.port or 8081
+    emit_log(log, f"  Redirect URI (Meta): {redirect_uri}")
+    emit_log(log, f"  Local listener: http://127.0.0.1:{local_oauth_port}/callback")
+    emit_log(log, f"  Scopes: {scopes}")
+    emit_log(
+        log,
+        "  After login, your browser will redirect through creator-assistant.vercel.app "
+        "back to the app.",
+    )
+    emit_log(
+        log,
+        "  If you see 'Invalid platform app': use instagram_app_id + instagram_app_secret "
+        "from Meta Dashboard → Instagram → API setup with Instagram Login.",
+    )
 
     code_received = []
 
@@ -132,7 +164,7 @@ def _run_instagram_oauth(
         def log_message(self, *args):
             pass
 
-    server = HTTPServer(("127.0.0.1", port), CallbackHandler)
+    server = HTTPServer(("127.0.0.1", local_oauth_port), CallbackHandler)
     emit_log(log, "  Instagram: waiting for authorization (visit the URL above)...")
     for _ in range(10):
         server.handle_request()
@@ -164,6 +196,15 @@ def _run_instagram_oauth(
     )
     _raise_with_body(resp)
     data = resp.json()
+    if isinstance(data, dict) and data.get("error_type") == "OAuthException":
+        msg = data.get("error_message", str(data))
+        if "Invalid platform app" in msg:
+            raise RuntimeError(
+                f"Instagram OAuth failed: {msg}. "
+                "Use instagram_app_id and instagram_app_secret from Meta Dashboard → "
+                "Instagram → API setup with Instagram Login (not the Facebook App ID)."
+            )
+        raise RuntimeError(f"Instagram OAuth token exchange failed: {data}")
     short_token = data["access_token"]
     user_id = str(data.get("user_id", ""))
     return short_token, user_id
@@ -216,15 +257,26 @@ def _oauth_long_lived_token(
 ) -> str:
     """Browser OAuth → short-lived token → long-lived token saved to instagram_token.json."""
     ig_cfg = config.get("instagram", {})
-    app_id = ig_cfg.get("app_id", "").strip()
-    app_secret = ig_cfg.get("app_secret", "").strip()
-    redirect_uri = ig_cfg.get("redirect_uri", "http://localhost:8081/callback").strip()
+    app_id, app_secret = _instagram_app_credentials(ig_cfg)
+    redirect_uri = ig_cfg.get(
+        "redirect_uri", "https://creator-assistant.vercel.app/callback.html"
+    ).strip()
+    local_oauth_port = int(ig_cfg.get("local_oauth_port", 8081))
+    scopes = _instagram_oauth_scopes(ig_cfg)
     if not app_id or not app_secret:
         raise ValueError(
-            "Instagram app_id and app_secret required in config.yaml for browser login."
+            "Instagram app credentials required in config.yaml for browser login. "
+            "Set instagram_app_id and instagram_app_secret (from Instagram Login setup)."
         )
 
-    short_token, user_id = _run_instagram_oauth(app_id, app_secret, redirect_uri, log=log)
+    short_token, user_id = _run_instagram_oauth(
+        app_id,
+        app_secret,
+        redirect_uri,
+        scopes,
+        local_oauth_port=local_oauth_port,
+        log=log,
+    )
     long_token, expires_in = _exchange_for_long_lived_token(short_token, app_secret)
     ig_user_id = user_id or ig_cfg.get("ig_user_id", "").strip()
     token_path = str(project_root() / TOKEN_FILE)
@@ -273,8 +325,7 @@ def get_access_token(
     """
     ig_cfg = config.get("instagram", {})
     token_path = str(project_root() / TOKEN_FILE)
-    app_id = ig_cfg.get("app_id", "").strip()
-    app_secret = ig_cfg.get("app_secret", "").strip()
+    app_id, app_secret = _instagram_app_credentials(ig_cfg)
 
     if force_reauth:
         emit_log(log, "  Instagram session expired — complete browser login to continue...")

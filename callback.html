@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CreatorAssistant — Authorization Complete</title>
+  <title>CreatorAssistant — Authorization</title>
   <link rel="icon" type="image/png" href="assets/CreatorAssistant-icon.png">
   <link rel="stylesheet" href="style.css">
 </head>
@@ -13,14 +13,14 @@
 
     <header class="hero">
       <img src="assets/CreatorAssistant-icon.png" alt="CreatorAssistant icon" class="hero-icon">
-      <h1>Authorization Complete</h1>
-      <p class="tagline">You can close this tab and return to CreatorAssistant.</p>
+      <h1 id="title">Redirecting…</h1>
+      <p class="tagline" id="message">Sending authorization back to CreatorAssistant on your PC.</p>
     </header>
 
-    <section class="card">
-      <h2>What just happened</h2>
-      <p>This page is the OAuth redirect target for CreatorAssistant. After signing in to TikTok (or another supported platform), you are sent back here so the desktop app can finish authorization and begin uploading clips you select.</p>
-      <p>If the desktop app does not continue automatically, switch back to the CreatorAssistant window and try the upload again.</p>
+    <section class="card" id="error-card" style="display: none;">
+      <h2>Authorization failed</h2>
+      <p id="error-detail"></p>
+      <p>Return to the CreatorAssistant window and check the log panel for details.</p>
     </section>
 
     <footer class="footer">
@@ -30,5 +30,35 @@
       </p>
     </footer>
   </div>
+  <script>
+    (function () {
+      // Must match instagram.local_oauth_port in config.yaml (default 8081).
+      var LOCAL_PORT = 8081;
+      var params = window.location.search;
+      var qs = new URLSearchParams(params);
+      var code = qs.get("code");
+      var error = qs.get("error");
+      var errorDesc = qs.get("error_description");
+
+      if (error) {
+        document.getElementById("title").textContent = "Authorization failed";
+        document.getElementById("message").textContent = "CreatorAssistant could not complete sign-in.";
+        document.getElementById("error-card").style.display = "block";
+        document.getElementById("error-detail").textContent =
+          error + (errorDesc ? ": " + errorDesc : "");
+        return;
+      }
+
+      if (code) {
+        var localUrl = "http://127.0.0.1:" + LOCAL_PORT + "/callback" + params;
+        window.location.replace(localUrl);
+        return;
+      }
+
+      document.getElementById("title").textContent = "Authorization complete";
+      document.getElementById("message").textContent =
+        "You can close this tab and return to CreatorAssistant.";
+    })();
+  </script>
 </body>
 </html>
