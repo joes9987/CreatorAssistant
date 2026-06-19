@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from app_paths import project_root
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import requests
 
@@ -202,84 +202,140 @@ def _refresh_long_lived_token(token: str) -> tuple[str, int]:
 
 # ── Token management ─────────────────────────────────────────────────────
 
-def get_access_token(config: dict, log: Callable[[str], None] | None = None) -> str:
-    """
-    Get a valid Instagram access token.
-    Priority: saved long-lived token → refresh → OAuth flow → config fallback.
-    """
-    ig_cfg = config.get("instagram", {})
-    token_path = str(project_root() / TOKEN_FILE)
+def _save_long_lived_token(token_path: str, access_token: str, expires_in: int, ig_user_id: str) -> None:
+    _save_token(token_path, {
+        "access_token": access_token,
+        "ig_user_id": ig_user_id,
+        "expires_at": time.time() + expires_in,
+    })
 
+
+def _oauth_long_lived_token(
+    config: dict,
+    log: Callable[[str], None] | None = None,
+) -> str:
+    """Browser OAuth → short-lived token → long-lived token saved to instagram_token.json."""
+    ig_cfg = config.get("instagram", {})
     app_id = ig_cfg.get("app_id", "").strip()
     app_secret = ig_cfg.get("app_secret", "").strip()
     redirect_uri = ig_cfg.get("redirect_uri", "http://localhost:8081/callback").strip()
+    if not app_id or not app_secret:
+        raise ValueError(
+            "Instagram app_id and app_secret required in config.yaml for browser login."
+        )
 
-    # 1. Try loading saved long-lived token
+    short_token, user_id = _run_instagram_oauth(app_id, app_secret, redirect_uri, log=log)
+    long_token, expires_in = _exchange_for_long_lived_token(short_token, app_secret)
+    ig_user_id = user_id or ig_cfg.get("ig_user_id", "").strip()
+    token_path = str(project_root() / TOKEN_FILE)
+    _save_long_lived_token(token_path, long_token, expires_in, ig_user_id)
+    emit_log(log, "  Instagram: saved new long-lived token (valid ~60 days)")
+    return long_token
+
+
+def _try_refresh_saved_token(
+    token_path: str,
+    token: str,
+    ig_user_id: str,
+    log: Callable[[str], None] | None,
+) -> str | None:
+    try:
+        new_token, expires_in = _refresh_long_lived_token(token)
+        _save_long_lived_token(token_path, new_token, expires_in, ig_user_id)
+        emit_log(log, "  Refreshed long-lived Instagram token")
+        return new_token
+    except Exception:
+        return None
+
+
+def _is_instagram_session_expired(exc: BaseException) -> bool:
+    """True for Meta OAuth 190 / expired session errors."""
+    if not isinstance(exc, requests.exceptions.HTTPError):
+        return False
+    msg = str(exc)
+    return (
+        "'code': 190" in msg
+        or '"code": 190' in msg
+        or "Session has expired" in msg
+        or "Error validating access token" in msg
+    )
+
+
+def get_access_token(
+    config: dict,
+    log: Callable[[str], None] | None = None,
+    *,
+    force_reauth: bool = False,
+) -> str:
+    """
+    Get a valid Instagram access token.
+    Uses instagram_token.json when valid; refreshes before expiry; opens browser OAuth when needed.
+    """
+    ig_cfg = config.get("instagram", {})
+    token_path = str(project_root() / TOKEN_FILE)
+    app_id = ig_cfg.get("app_id", "").strip()
+    app_secret = ig_cfg.get("app_secret", "").strip()
+
+    if force_reauth:
+        emit_log(log, "  Instagram session expired — complete browser login to continue...")
+        return _oauth_long_lived_token(config, log=log)
+
+    # 1. Saved long-lived token from a previous OAuth run
     saved = _load_token(token_path)
-    if saved:
-        token = saved.get("access_token")
-        expires_at = saved.get("expires_at", 0)
+    if saved and saved.get("access_token"):
+        token = saved["access_token"]
+        expires_at = float(saved.get("expires_at") or 0)
+        ig_user_id = saved.get("ig_user_id", "")
 
-        # Refresh if expiring within 7 days
-        if time.time() > expires_at - (7 * 86400):
-            try:
-                new_token, expires_in = _refresh_long_lived_token(token)
-                _save_token(token_path, {
-                    "access_token": new_token,
-                    "ig_user_id": saved.get("ig_user_id", ""),
-                    "expires_at": time.time() + expires_in,
-                })
-                emit_log(log, "  Refreshed long-lived Instagram token")
-                return new_token
-            except Exception:
-                emit_log(log, "  Saved Instagram token expired, re-authenticating...")
-        else:
+        if expires_at and time.time() < expires_at - (7 * 86400):
             return token
 
-    # 2. Use token from config.yaml (app_token or access_token from Meta dashboard)
+        refreshed = _try_refresh_saved_token(token_path, token, ig_user_id, log)
+        if refreshed:
+            return refreshed
+
+        emit_log(log, "  Saved Instagram token expired — opening browser login...")
+        return _oauth_long_lived_token(config, log=log)
+
+    # 2. Token pasted in config.yaml (Meta dashboard) — exchange or refresh once, then OAuth
     config_token = (ig_cfg.get("app_token", "") or ig_cfg.get("access_token", "")).strip()
-    # YAML / copy-paste sometimes wraps quotes or odd whitespace
     config_token = config_token.strip().strip('"').strip("'")
     if config_token and app_secret:
-        # Short-lived → long-lived (ig_exchange_token). Fails with OAuth 190 if the token is
-        # already long-lived or not an Instagram Login user token — then try refresh below.
         try:
             long_token, expires_in = _exchange_for_long_lived_token(config_token, app_secret)
-            _save_token(token_path, {
-                "access_token": long_token,
-                "ig_user_id": ig_cfg.get("ig_user_id", ""),
-                "expires_at": time.time() + expires_in,
-            })
-            emit_log(log, "  Exchanged short-lived token for long-lived Instagram token (valid ~60 days)")
+            _save_long_lived_token(
+                token_path,
+                long_token,
+                expires_in,
+                ig_cfg.get("ig_user_id", "").strip(),
+            )
+            emit_log(log, "  Exchanged config token for long-lived Instagram token (~60 days)")
             return long_token
-        except Exception as exchange_err:
-            try:
-                new_token, expires_in = _refresh_long_lived_token(config_token)
-                _save_token(token_path, {
-                    "access_token": new_token,
-                    "ig_user_id": ig_cfg.get("ig_user_id", ""),
-                    "expires_at": time.time() + expires_in,
-                })
-                emit_log(
-                    log,
-                    "  Refreshed long-lived Instagram token (config token was already long-lived; "
-                    "exchange only applies to short-lived tokens)",
-                )
-                return new_token
-            except Exception:
-                emit_log(
-                    log,
-                    f"  Note: Could not exchange or refresh Instagram token ({exchange_err}). "
-                    "Using config token directly.",
-                )
-                return config_token
+        except Exception:
+            refreshed = _try_refresh_saved_token(
+                token_path,
+                config_token,
+                ig_cfg.get("ig_user_id", "").strip(),
+                log,
+            )
+            if refreshed:
+                return refreshed
+
+    if app_id and app_secret:
+        emit_log(log, "  Instagram: no valid token — complete browser login...")
+        return _oauth_long_lived_token(config, log=log)
 
     if config_token:
+        emit_log(
+            log,
+            "  Warning: using access_token from config.yaml without refresh; "
+            "add app_id/app_secret and use browser login if it expires.",
+        )
         return config_token
 
     raise ValueError(
-        "Instagram app_token missing from config.yaml. "
-        "Generate one in Meta App Dashboard > Use cases > Instagram API > Generate access tokens."
+        "Instagram credentials missing. Set app_id, app_secret, and redirect_uri in config.yaml, "
+        "then upload again to sign in via browser."
     )
 
 
@@ -296,11 +352,20 @@ _RETRYABLE_EXCEPTIONS = (
 _MAX_ATTEMPTS_PER_HOST = 3
 
 
-def _temp_upload_timeout(file_path: str) -> tuple[float, float]:
-    """Connect + read timeouts scaled by file size."""
+def _temp_upload_timeout(file_path: str, attempt: int = 1) -> tuple[float, float]:
+    """Connect + read timeouts scaled by file size and retry attempt.
+
+    Temp-host uploads are one big POST/PUT; slow uplinks often hit
+    ``TimeoutError: The write operation timed out`` if read timeout is too low.
+    Each retry lengthens the budget slightly.
+    """
     size_mb = Path(file_path).stat().st_size / (1024 * 1024)
-    read_sec = max(600, min(7200, int(120 + size_mb * 40)))
-    return (60.0, float(read_sec))
+    # Base: generous seconds-per-MB for consumer upload links (hosts + TLS + buffering).
+    base_read = 180.0 + size_mb * 75.0
+    attempt_mult = 1.0 + 0.45 * (attempt - 1)
+    read_sec = int(min(14_400, max(1200, base_read * attempt_mult)))  # min 20m, cap 4h
+    connect_sec = min(300.0, 90.0 + size_mb * 2.0)
+    return (connect_sec, float(read_sec))
 
 
 def _try_tmpfiles(path: Path, timeout: tuple[float, float]) -> str:
@@ -335,9 +400,42 @@ def _try_litterbox(path: Path, timeout: tuple[float, float]) -> str:
     return url
 
 
+def _try_transfer_sh(path: Path, timeout: tuple[float, float]) -> str:
+    """Upload via transfer.sh (PUT). Returns a plain-text URL body."""
+    with open(path, "rb") as f:
+        resp = requests.put(
+            f"https://transfer.sh/{quote(path.name)}",
+            data=f,
+            headers={"Content-Type": "video/mp4"},
+            timeout=timeout,
+        )
+    _raise_with_body(resp)
+    url = resp.text.strip()
+    if not url.startswith("http"):
+        raise RuntimeError(f"transfer.sh returned unexpected response: {url[:200]}")
+    return url
+
+
+def _try_0x0(path: Path, timeout: tuple[float, float]) -> str:
+    """Upload to 0x0.st (anonymous host). Returns a plain-text URL body."""
+    with open(path, "rb") as f:
+        resp = requests.post(
+            "https://0x0.st",
+            files={"file": (path.name, f, "video/mp4")},
+            timeout=timeout,
+        )
+    _raise_with_body(resp)
+    url = resp.text.strip().split()[0] if resp.text.strip() else ""
+    if not url.startswith("http"):
+        raise RuntimeError(f"0x0.st returned unexpected response: {resp.text[:200]}")
+    return url
+
+
 _TEMP_HOSTS = [
     ("tmpfiles.org", _try_tmpfiles),
     ("litterbox.catbox.moe", _try_litterbox),
+    ("transfer.sh", _try_transfer_sh),
+    ("0x0.st", _try_0x0),
 ]
 
 
@@ -348,18 +446,25 @@ def _upload_to_temp_host(file_path: str, log: Callable[[str], None] | None = Non
     backoff before falling through to the next host.
     """
     path = Path(file_path)
-    timeout = _temp_upload_timeout(str(path))
+    size_mb = path.stat().st_size / (1024 * 1024)
+    emit_log(log, f"    Temp upload ({path.name}): {size_mb:.1f} MB → public URL for Instagram fetch")
+
     all_errors: list[str] = []
 
     for host_name, uploader in _TEMP_HOSTS:
         last_err: Exception | None = None
         for attempt in range(1, _MAX_ATTEMPTS_PER_HOST + 1):
+            timeout = _temp_upload_timeout(str(path), attempt)
             try:
                 if attempt > 1:
                     emit_log(log, f"    Retrying {host_name} (attempt {attempt}/{_MAX_ATTEMPTS_PER_HOST})...")
+                else:
+                    emit_log(
+                        log,
+                        f"    {host_name}: connect={timeout[0]:.0f}s read={timeout[1]:.0f}s",
+                    )
                 url = uploader(path, timeout)
-                if attempt > 1 or host_name != _TEMP_HOSTS[0][0]:
-                    emit_log(log, f"    Uploaded via {host_name}")
+                emit_log(log, f"    Uploaded via {host_name}")
                 return url
             except _RETRYABLE_EXCEPTIONS as e:
                 last_err = e
@@ -528,7 +633,18 @@ def upload_clips(
         emit_log(log, f"  Uploading to Instagram {i+1}/{len(to_upload)} (#{clip_num}): {Path(path).name}")
         clip_start = time.perf_counter()
         try:
-            media_id = upload_reel(path, ig_user_id, access_token, caption=caption, log=log)
+            try:
+                media_id = upload_reel(path, ig_user_id, access_token, caption=caption, log=log)
+            except Exception as e:
+                if _is_instagram_session_expired(e):
+                    emit_log(log, "    Instagram token expired — re-authenticating and retrying this clip...")
+                    access_token = get_access_token(config, log=log, force_reauth=True)
+                    saved = _load_token(str(project_root() / TOKEN_FILE))
+                    if saved and saved.get("ig_user_id"):
+                        ig_user_id = saved["ig_user_id"]
+                    media_id = upload_reel(path, ig_user_id, access_token, caption=caption, log=log)
+                else:
+                    raise
             if media_id:
                 uploaded.append(media_id)
                 _mark_uploaded(tracking_path, path)

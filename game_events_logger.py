@@ -9,8 +9,9 @@ When OBS WebSocket is available, detects RecordingStarted/RecordingStopped and
 automatically exits when recording stops (no Ctrl+C needed).
 
 Optional (game_events.obs_websocket): auto_start_recording calls OBS Start Record when the
-Live Client reports GameStart (with a mid-game fallback if GameStart was missed). Pair with
-auto_stop_recording_on_game_end to Stop Record on GameEnd or after Live Client disconnects.
+Live Client reports GameStart (with a mid-game fallback if GameStart was missed). Use
+obs_recording_start_delay_seconds to wait after GameStart before recording (reduces encoder
+spikes). Pair with auto_stop_recording_on_game_end to Stop Record on GameEnd or after Live Client disconnects.
 OBS must be running with WebSocket enabled for either control path.
 """
 
@@ -178,11 +179,14 @@ def run_session(
     auto_stop_recording = bool(obs_ws_cfg.get("auto_stop_recording_on_game_end", False))
     disconnect_threshold = float(obs_ws_cfg.get("live_client_disconnect_stop_seconds", 8))
     mid_game_join_sec = float(obs_ws_cfg.get("mid_game_join_recording_game_time_sec", 5))
+    obs_start_delay_sec = float(obs_ws_cfg.get("obs_recording_start_delay_seconds", 0) or 0)
 
     lol_match_in_progress = False  # GameStart seen or game clock passed mid_game_join threshold
     obs_start_done = False
     obs_stop_done = False
     disconnect_since: float | None = None
+    obs_pending_start_deadline: float | None = None
+    mid_join_notice_done = False
 
     def try_obs_start_once():
         nonlocal obs_start_done
@@ -223,6 +227,31 @@ def run_session(
             emit_log(log, f"  OBS: Stop Record failed ({e})")
         obs_stop_done = True
 
+    def schedule_obs_start(reason_for_log: str):
+        """Arm delayed Start Record (or start immediately if delay is 0)."""
+        nonlocal obs_pending_start_deadline
+        if not auto_start_recording or not obs_req or obs_start_done:
+            return
+        if obs_pending_start_deadline is not None:
+            return
+        if obs_start_delay_sec <= 0:
+            try_obs_start_once()
+            return
+        obs_pending_start_deadline = time.time() + obs_start_delay_sec
+        emit_log(log, f"  OBS: Start Record in {obs_start_delay_sec:.0f}s ({reason_for_log})")
+
+    def maybe_fire_delayed_obs_start():
+        nonlocal obs_pending_start_deadline
+        if obs_pending_start_deadline is None:
+            return
+        if time.time() < obs_pending_start_deadline:
+            return
+        obs_pending_start_deadline = None
+        if data is not None:
+            try_obs_start_once()
+        else:
+            emit_log(log, "  OBS: delayed Start Record skipped (Live Client unavailable)")
+
     if obs_evt:
         obs_evt.callback.register(_make_obs_handler(stop_event, log))
         emit_log(log, "  OBS event listener registered (RecordStateChanged)")
@@ -238,7 +267,12 @@ def run_session(
         emit_log(
             log,
             "OBS WebSocket connected — recording will start on GameStart "
-            f"(or once game clock ≥ {mid_game_join_sec:.0f}s if you joined mid-game).",
+            f"(or once game clock ≥ {mid_game_join_sec:.0f}s if you joined mid-game)"
+            + (
+                f"; delayed {obs_start_delay_sec:.0f}s before Start Record."
+                if obs_start_delay_sec > 0
+                else "."
+            ),
         )
     elif obs_req:
         emit_log(log, "OBS WebSocket connected — start recording manually when ready (or set auto_start_recording in config).")
@@ -268,6 +302,7 @@ def run_session(
                     elif time.time() - disconnect_since >= disconnect_threshold:
                         try_obs_stop("Live Client disconnected — match likely ended")
                         disconnect_since = None
+                        obs_pending_start_deadline = None
             else:
                 disconnect_since = None
                 if was_disconnected and session_start is not None:
@@ -275,6 +310,8 @@ def run_session(
                     lol_match_in_progress = False
                     obs_start_done = False
                     obs_stop_done = False
+                    obs_pending_start_deadline = None
+                    mid_join_notice_done = False
                     emit_log(log, f"  New game detected at {datetime.now().strftime('%H:%M:%S')}")
                 was_disconnected = False
 
@@ -319,10 +356,11 @@ def run_session(
                         game_start_time = event_time
                         lol_match_in_progress = True
                         emit_log(log, f"  GameStart at {event_time:.1f}s")
-                        try_obs_start_once()
+                        schedule_obs_start("GameStart")
                     elif event_name == "GameEnd":
                         lol_match_in_progress = True
                         emit_log(log, f"  GameEnd at {event_time:.1f}s")
+                        obs_pending_start_deadline = None
                         try_obs_stop("GameEnd event")
                     elif event_name == "ChampionKill":
                         player_by_pid, champion_by_summoner = _build_player_maps(data)
@@ -366,11 +404,15 @@ def run_session(
                     gt_join = float((data.get("gameData") or {}).get("gameTime") or 0)
                     if gt_join >= mid_game_join_sec:
                         lol_match_in_progress = True
-                        emit_log(
-                            log,
-                            f"  Game clock ≥ {mid_game_join_sec:.0f}s (GameStart may have been missed) — starting OBS recording",
-                        )
-                        try_obs_start_once()
+                        if not mid_join_notice_done:
+                            emit_log(
+                                log,
+                                f"  Game clock ≥ {mid_game_join_sec:.0f}s (GameStart may have been missed)",
+                            )
+                            mid_join_notice_done = True
+                        schedule_obs_start("mid-game join")
+
+            maybe_fire_delayed_obs_start()
 
             # OBS polling runs every iteration, even when the game API is unavailable
             if obs_req:

@@ -44,6 +44,7 @@ game_events:
     auto_stop_recording_on_game_end: false  # Stop Record on GameEnd or Live Client disconnect (debounced)
     live_client_disconnect_stop_seconds: 8   # How long API must be down before treating match as ended
     mid_game_join_recording_game_time_sec: 5  # Fallback start if GameStart event was missed (logger started late)
+    obs_recording_start_delay_seconds: 0     # Wait N seconds after GameStart before Start Record (e.g. 5 if recordings hitch)
 
 # YouTube Shorts upload
 youtube:
