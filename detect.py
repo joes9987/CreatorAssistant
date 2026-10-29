@@ -13,13 +13,26 @@ from pathlib import Path
 
 from app_paths import project_root
 
-import cv2
 import numpy as np
-import librosa
-import soundfile as sf
 import yaml
 
 from timer_utils import iter_with_timer
+
+# Optional so tests and CI can import this module without the desktop media stack.
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+try:
+    import librosa
+except ImportError:
+    librosa = None
+
+try:
+    import soundfile as sf  # registers the wav backend librosa.load uses
+except ImportError:
+    sf = None
 
 
 def _get_ffmpeg_bin(config: dict | None = None) -> tuple[str, str]:
@@ -68,6 +81,11 @@ def extract_audio(video_path: str, sample_rate: int = 22050, ffmpeg_path: str = 
     Extract audio from video using FFmpeg and load with librosa.
     Returns (audio_array, sample_rate).
     """
+    if librosa is None or sf is None:
+        raise ImportError(
+            "librosa and soundfile are required for audio highlight detection "
+            "(pip install librosa soundfile)"
+        )
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
 
@@ -130,6 +148,10 @@ def compute_audio_energy(audio: np.ndarray, sr: int, window_seconds: float = 5.0
     Compute rolling RMS energy. High energy = likely action (team fights, kills, etc.).
     Returns array of energy values, one per window.
     """
+    if librosa is None:
+        raise ImportError(
+            "librosa is required for audio highlight detection (pip install librosa soundfile)"
+        )
     hop_length = int(sr * 0.5)  # 0.5 sec hops
     rms = librosa.feature.rms(y=audio, hop_length=hop_length)[0]
 
@@ -159,6 +181,10 @@ def compute_motion_scores(
     High motion = action, team fights, etc.
     Returns array of motion scores per window.
     """
+    if cv2 is None:
+        raise ImportError(
+            "opencv-python is required for motion highlight detection (pip install opencv-python)"
+        )
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return np.zeros(int(duration / window_seconds) + 1)
@@ -230,7 +256,7 @@ def get_matching_events_path(
     if not log_dir.exists():
         # Fallback: legacy single file
         legacy = ge_cfg.get("file", "game_events.json")
-        p = base / Path(legacy).name
+        p = root / Path(legacy).name
         return str(p) if p.exists() else None
 
     try:
@@ -262,7 +288,7 @@ def get_matching_events_path(
             best_path = str(p)
     if best_path is None and not list(log_dir.glob("events_*.json")):
         legacy = ge_cfg.get("file", "game_events.json")
-        p = base / Path(legacy).name
+        p = root / Path(legacy).name
         if p.exists():
             return str(p)
     return best_path
@@ -302,7 +328,15 @@ def load_highlights_from_events(
         if player_name:
             filtered = []
             for k in kills:
-                killer = (k.get("killer_name") or k.get("data", {}).get("KillerName") or k.get("data", {}).get("killerName") or "").strip().lower()
+                payload = k.get("data") or {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                killer = (
+                    k.get("killer_name")
+                    or payload.get("KillerName")
+                    or payload.get("killerName")
+                    or ""
+                ).strip().lower()
                 if killer == player_name:
                     filtered.append(k)
             kills = filtered

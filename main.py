@@ -12,7 +12,6 @@ from pathlib import Path
 from app_paths import project_root
 from detect import load_config
 from pipeline import process_videos
-from ui_dialogs import select_video_files
 
 
 def default_recordings_dir(config: dict) -> Path:
@@ -26,6 +25,8 @@ def default_recordings_dir(config: dict) -> Path:
 
 
 def main() -> None:
+    from ui_dialogs import select_video_files
+
     config_path = project_root() / "config.yaml"
     config = load_config(str(config_path))
     recordings = default_recordings_dir(config)

@@ -10,7 +10,7 @@ Automatically detect highlights in your OBS-recorded League of Legends gameplay 
 
 ## Prerequisites
 
-- **Python 3.9+**
+- **Python 3.10+**
 - **FFmpeg** – Required for video/audio processing
   - [Download for Windows](https://www.gyan.dev/ffmpeg/builds/) (get `ffmpeg-release-essentials.zip`)
   - Extract somewhere (e.g. `C:\ffmpeg-essentials`). CreatorAssistant will auto-detect if the `bin` folder is in PATH or in `C:\ffmpeg\bin` / `C:\ffmpeg-essentials\bin`
@@ -23,6 +23,28 @@ Automatically detect highlights in your OBS-recorded League of Legends gameplay 
 cd CreatorAssistant
 pip install -r requirements.txt
 ```
+
+## Tests
+
+Unit tests cover highlight scoring, matching a recording to game-event logs, clip-cut and vertical-reframe parameters, and pipeline wiring. They do not start OBS, League of Legends, FFmpeg renders, or network calls.
+
+From the repo root, install the small test set (PyYAML, NumPy, requests) and run:
+
+```bash
+pip install -r requirements-dev.txt
+python -m unittest discover -s tests -v
+```
+
+The desktop stack in `requirements.txt` (OpenCV, librosa, the GUI, upload SDKs) is not required for these tests.
+
+The Instagram hosting API (`api/ig-media.js`) has its own tests:
+
+```bash
+npm ci
+npm test
+```
+
+GitHub Actions runs both suites on pull requests and on pushes to `master`. No secrets are required.
 
 ## Usage
 

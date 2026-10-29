@@ -1,0 +1,5 @@
+# Dependencies for unit tests and CI.
+# The desktop app still uses requirements.txt (OpenCV, librosa, GUI, upload SDKs).
+PyYAML>=6.0
+numpy>=1.24.0
+requests>=2.31.0

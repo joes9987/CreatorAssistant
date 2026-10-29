@@ -8,7 +8,6 @@ from app_paths import project_root
 from detect import detect_highlights, load_config
 from extract import extract_all_clips
 from timer_utils import emit_log, format_elapsed
-from ui_dialogs import select_clips_to_upload
 
 
 def clip_nums_for_upload_count(config: dict, num_selected: int) -> list[int] | None:
@@ -117,7 +116,12 @@ def process_videos(
     Full workflow for each video: detect highlights, extract clips, optional upload dialog.
     upload_selector: if None, uses select_clips_to_upload (blocking Tk on main thread).
     """
-    selector = upload_selector or select_clips_to_upload
+    if upload_selector is None:
+        from ui_dialogs import select_clips_to_upload
+
+        selector = select_clips_to_upload
+    else:
+        selector = upload_selector
 
     for video_path in videos:
         outputs = process_one_video(video_path, config, log)
