@@ -155,3 +155,68 @@ OBS recording → (optional: edit in Filmora) → CreatorAssistant → Shorts up
 3. **First run:** A browser URL will be shown; visit it to authorize. A local server catches the callback and saves the token.
 
 4. **Note:** Unverified TikTok apps may only post to private accounts until approved.
+
+## Upload to Instagram Reels (optional)
+
+Instagram's publishing API downloads the video from a URL. It cannot read a file on your PC. CreatorAssistant uploads the clip to a **Vercel Blob** store on the same project as the callback site (`creator-assistant.vercel.app`), gives that URL to Instagram, then **deletes the object** after the Reel is published. The object is also deleted if container creation, processing, or publishing fails.
+
+The desktop app does **not** send clips to anonymous hosts (tmpfiles.org, litterbox.catbox.moe, transfer.sh, 0x0.st). If hosting is not configured, the Instagram upload stops with an error.
+
+YouTube and TikTok are unchanged: those clips go straight to the platform and do not use this store.
+
+### One-time setup (project owner)
+
+1. **Meta app** (Instagram Login), from the comments in `config.example.yaml`:
+   - OAuth redirect URI: `https://creator-assistant.vercel.app/callback.html`
+   - Native/desktop app on, with that same HTTPS callback URL
+   - Use the Instagram App ID and secret from **Instagram → API setup with Instagram Login** (not the Facebook App ID)
+   - Enable `instagram_business_content_publish` and add your professional account
+
+2. **Blob store** on the Vercel project that serves the callback site. From that linked project:
+
+   ```bash
+   vercel blob create-store creator-assistant-ig --access private --yes
+   ```
+
+   Or in the dashboard: Storage → Blob → create a **private** store and connect it to Production (and Preview, if you use it). Connecting the store gives the API OIDC access (`BLOB_STORE_ID`). Leave `BLOB_READ_WRITE_TOKEN` on Vercel if the dashboard created one. **Do not copy either credential into `config.yaml` or git.**
+
+3. **Limited upload secret** (this is what the desktop app stores):
+
+   ```bash
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+   In the Vercel project, set `IG_STORAGE_TOKEN` to that value for Production. Redeploy so `api/ig-media` is live. The route only accepts `video/mp4`, only under `ig-reels/<random-id>.mp4`, and only up to 512 MiB (override with `IG_BLOB_MAX_BYTES` if you need to).
+
+4. **`config.yaml`** (copy from `config.example.yaml`):
+
+   ```yaml
+   instagram:
+     enabled: true
+     instagram_app_id: "..."
+     instagram_app_secret: "..."
+     redirect_uri: "https://creator-assistant.vercel.app/callback.html"
+     ig_user_id: "..."
+     storage:
+       provider: vercel_blob
+       api_url: "https://creator-assistant.vercel.app/api/ig-media"
+       token: "<same value as IG_STORAGE_TOKEN>"
+   ```
+
+   `api_url` is the host. Point it at another deployment of this repo if you are not using the production site. `provider` must be `vercel_blob`.
+
+### What end users need
+
+People who receive the app do **not** create a Vercel account or a Blob store. They need `instagram.storage.api_url` and `instagram.storage.token` in the `config.yaml` beside the app (see [BUILD.md](BUILD.md)). That token can upload and delete `ig-reels/*` clips through the API. It cannot list the store or read the Blob credential. Rotate `IG_STORAGE_TOKEN` on Vercel and in every distributed config to revoke it.
+
+The first Instagram upload still opens a browser so you can sign in. The token is saved to `instagram_token.json`.
+
+### If Instagram cannot fetch the clip
+
+The default store is **private**. Instagram receives a signed URL that lasts 30 minutes (the file is deleted sooner, as soon as publishing finishes or fails). The upload URL itself expires after 15 minutes.
+
+If the Reel fails with a media-download error, Meta's fetcher may be refusing the signed URL. Create a **public** Blob store instead, set `IG_BLOB_ACCESS=public` on the Vercel project, and redeploy. The app then gives Instagram a plain `https://….public.blob.vercel-storage.com/ig-reels/<id>.mp4` URL. The id is unguessable, the CDN cache is 60 seconds, and the app still deletes the object when it is done. `IG_BLOB_ACCESS` must match the store (`private` or `public`).
+
+### Leftover files
+
+If the app is killed after the upload and before the delete, the object stays in the store. A private URL stops working after 30 minutes; the bytes remain until you delete `ig-reels/…` in the Vercel Blob dashboard. A public object stays readable at that URL until you delete it.

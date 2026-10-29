@@ -1,0 +1,12 @@
+{
+  "name": "creator-assistant-site",
+  "private": true,
+  "type": "module",
+  "description": "Static callback site and the Instagram clip-hosting API. The desktop app itself is Python.",
+  "scripts": {
+    "test": "node --test tests/ig-media.test.mjs"
+  },
+  "dependencies": {
+    "@vercel/blob": "2.8.2"
+  }
+}

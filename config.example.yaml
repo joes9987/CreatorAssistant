@@ -85,6 +85,15 @@ instagram:
   # Leave empty — app uses instagram_token.json + OAuth (do not paste dashboard tokens)
   access_token: ""
   title_template: "League Clip {num}"
+  # Instagram downloads the clip from a URL. Host it on a Vercel Blob store you control
+  # (api/ig-media on the callback site), then the app deletes it after publish or on failure.
+  # Anonymous file hosts are not used. If api_url or token is empty, Instagram upload errors.
+  # token is IG_STORAGE_TOKEN from the Vercel project — not a Blob read-write token.
+  # End users do not need a Vercel account. See README → Upload to Instagram Reels.
+  storage:
+    provider: vercel_blob
+    api_url: "https://creator-assistant.vercel.app/api/ig-media"
+    token: ""  # same value as IG_STORAGE_TOKEN; leave empty until that env var is set
 
 # AI detection
 detection:

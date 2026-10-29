@@ -22,6 +22,9 @@ __pycache__/
 venv/
 env/
 
+# Node (Instagram hosting API on Vercel). Do not commit installed packages.
+node_modules/
+
 # Local data
 inputs/
 input/*

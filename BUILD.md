@@ -63,5 +63,6 @@ pyinstaller --noconfirm --console --name CreatorAssistantCLI `
 ## Notes
 
 - **FFmpeg** is not bundled; users still need FFmpeg on PATH or `ffmpeg_path` in `config.yaml`.
+- **Instagram hosting:** do not put a Vercel Blob read-write token in `config.yaml`. The file next to the exe needs `instagram.storage.api_url` and `instagram.storage.token` (the limited `IG_STORAGE_TOKEN` from the Vercel project). See the README.
 - Test each exe on a clean PC or VM before sharing.
 - First run may be blocked by SmartScreen (unsigned exe).

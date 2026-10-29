@@ -12,19 +12,20 @@
 
     <header>
       <h1>Privacy Policy</h1>
-      <p class="updated"><em>Last updated: February 2026</em></p>
+      <p class="updated"><em>Last updated: October 2026</em></p>
     </header>
 
     <div class="card">
       <h2 class="section">1. Overview</h2>
-      <p>CreatorAssistant is a desktop application. All video processing — highlight detection, clip extraction, and format conversion — runs entirely on your device. We do not operate servers that receive, store, or process your video content.</p>
+      <p>CreatorAssistant is a desktop application. Highlight detection, clip extraction, and format conversion run on your device. There is no CreatorAssistant account and no sign-up required to use the application itself.</p>
+      <p>YouTube and TikTok uploads are sent from your device to those platforms. Instagram's API can only download a video from a URL, so an Instagram upload is placed in a Vercel Blob store operated for CreatorAssistant, kept only long enough for Instagram to fetch it, and then deleted. If publishing fails, the upload is deleted as well.</p>
 
       <h2 class="section">2. Data We Do Not Collect</h2>
-      <p>CreatorAssistant does not collect, transmit, or store any personal information, usage analytics, telemetry, crash reports, or video content on remote servers. There is no account system and no sign-up required to use the application itself.</p>
+      <p>CreatorAssistant does not collect usage analytics, telemetry, or crash reports. We do not keep a copy of your videos for our own use. A clip uploaded to Instagram exists in Blob storage only for that publish attempt.</p>
 
       <h2 class="section">3. Third-Party Platform Authentication</h2>
       <p>When you use the upload features, you authenticate directly with YouTube (Google), TikTok, or Instagram (Meta) through their official OAuth flows. CreatorAssistant receives an access token from these platforms so it can upload clips on your behalf. These tokens are stored locally on your device in the application folder and are never sent to us or any third party.</p>
-      <p>The only data sent to third-party platforms is the video file you choose to upload, along with metadata you configure (title, description, tags). This data is transmitted directly from your device to the platform's API.</p>
+      <p>The video you choose to publish, and the title or caption you configure, are sent to that platform. YouTube and TikTok receive the file directly from your device. For Instagram, the file is uploaded to the Blob store described above so Meta can download it, and it is removed when Instagram has finished or the attempt fails. The Blob read-write credential stays on Vercel. The app only stores a separate upload token that can place and delete those temporary clips.</p>
 
       <h2 class="section">4. Riot Games API</h2>
       <p>The optional game events logger connects to Riot Games' local Live Client Data API (localhost port 2999) to read in-game kill events during an active League of Legends match. This data never leaves your device — it is written to a local JSON file used for clip timing.</p>
