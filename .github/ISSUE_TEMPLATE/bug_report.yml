@@ -1,0 +1,34 @@
+name: Bug report
+description: CreatorAssistant failed to start or failed while running
+title: "[Bug] "
+body:
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Example, Windows 11 24H2
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: App version
+      description: From CreatorAssistant.exe --version, or the start line in creatorassistant.log
+      placeholder: 1.0.1
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Exact error text
+      description: Paste the message box or the full error, including "Failed to load Python DLL" if that is what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: Paste creatorassistant.log from the folder next to CreatorAssistant.exe. The app redacts API keys and home folder names. Do not add tokens yourself.
+    validations:
+      required: true

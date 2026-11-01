@@ -1,67 +1,28 @@
 # Building desktop executables (PyInstaller)
 
+Release builds use **`packaging/build.ps1`**. It creates a clean virtualenv, builds the one-folder app (`CreatorAssistant-core.exe` + `_internal`), the one-file game logger, and the small `CreatorAssistant.exe` launcher, then writes:
+
+`dist\CreatorAssistant-v1.0.1-win64.zip`
+
+The zip contains the full `CreatorAssistant` folder (`CreatorAssistant.exe`, `CreatorAssistant-core.exe`, `_internal`, `CreatorAssistantGameLogger.exe`, `config.yaml` copied from `config.example.yaml`, and `README.md`). It does **not** copy your local `config.yaml`.
+
+```powershell
+./packaging/build.ps1
+```
+
+`-StageOnly` stops before the zip. `-ZipOnly` zips an existing stage folder and omits `creatorassistant.log`. Visual Studio C++ build tools are required for the launcher. Pushing a `v*` tag that matches `version.py` runs the same build on GitHub Actions and attaches the zip and a `.sha256` file to the release.
+
+The main app is a **one-folder** PyInstaller build. `_internal` must stay next to `CreatorAssistant-core.exe`. The game logger is **one-file** so it does not need its own `_internal`.
+
+## Apps
+
 CreatorAssistant can be packaged as two separate apps:
 
 1. **Clip workflow** — `run_main_gui.py` → browse `input/` (or your folder), detect/extract, optional uploads.
 2. **Game events logger** — `run_logger_gui.py` → manual **Stop and save** when OBS does not auto-stop.
 
-## One-time setup
-
-```powershell
-cd path\to\CreatorAssistant
-pip install -r requirements.txt
-pip install pyinstaller
-```
-
-Copy `config.example.yaml` to `config.yaml` and configure before distributing (secrets stay beside the exe).
-
-## Clip workflow exe
-
-From the project root (folder that contains `main.py`, `detect.py`, `gui\`, etc.):
-
-```powershell
-pyinstaller --noconfirm --windowed --name CreatorAssistant `
-  --add-data "config.example.yaml;." `
-  run_main_gui.py
-```
-
-- If you use a single-file build, add `--onefile` (slower startup; one `.exe`).
-- Heavy deps (OpenCV, numpy, librosa) may need extra flags on some machines, e.g.:
-
-```powershell
-pyinstaller --noconfirm --windowed --name CreatorAssistant `
-  --collect-all cv2 --collect-all librosa --collect-all soundfile `
-  run_main_gui.py
-```
-
-After a successful build, copy **`config.yaml`** (your real config) next to `dist\CreatorAssistant\CreatorAssistant.exe` (or next to the one-file exe). The GUI also writes **`gui_settings.json`** next to the exe for the saved default recordings folder.
-
-## Game logger exe
-
-```powershell
-pyinstaller --noconfirm --windowed --name CreatorAssistantGameLogger `
-  run_logger_gui.py
-```
-
-Optional: `--onefile`, and include `obsws-python` if you want OBS WebSocket auto-stop bundled:
-
-```powershell
-pip install obsws-python
-pyinstaller --noconfirm --windowed --name CreatorAssistantGameLogger `
-  --hidden-import=obsws_python `
-  run_logger_gui.py
-```
-
-## CLI `main.py` (console)
-
-```powershell
-pyinstaller --noconfirm --console --name CreatorAssistantCLI `
-  --collect-all cv2 --collect-all librosa --collect-all soundfile `
-  main.py
-```
-
 ## Notes
 
-- **FFmpeg** is not bundled; users still need FFmpeg on PATH or `ffmpeg_path` in `config.yaml`.
-- Test each exe on a clean PC or VM before sharing.
-- First run may be blocked by SmartScreen (unsigned exe).
+- **FFmpeg** is not bundled. Users need it on PATH or `ffmpeg_path` in `config.yaml`.
+- Do not upload `CreatorAssistant.exe` by itself. The release asset is the zip from `packaging/build.ps1`, which includes `_internal`.
+- First run may be blocked by SmartScreen (unsigned exe). See the Install section in `README.md`.
