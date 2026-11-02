@@ -51,12 +51,12 @@ jobs:
           $dir = "dist/CreatorAssistant-v$ver-win64/CreatorAssistant"
           $exe = Join-Path $dir "CreatorAssistant.exe"
           if (-not (Test-Path $exe)) { throw "missing $exe" }
-          & $exe --selftest
-          if ($LASTEXITCODE -ne 0) {
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) {
             if (Test-Path (Join-Path $dir "creatorassistant.log")) {
               Get-Content (Join-Path $dir "creatorassistant.log")
             }
-            throw "selftest exit $LASTEXITCODE"
+            throw "selftest exit $($p.ExitCode)"
           }
           $log = Join-Path $dir "creatorassistant.log"
           if (-not (Select-String -Path $log -Pattern "selftest ok" -Quiet)) {
