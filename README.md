@@ -2,6 +2,24 @@
 
 Automatically detect highlights in your OBS-recorded League of Legends gameplay and extract Shorts/TikTok/Reels-ready clips.
 
+## Install (Windows)
+
+Download **CreatorAssistant-v1.0.1-win64.zip** from the [GitHub Releases](https://github.com/joes9987/CreatorAssistant/releases) page. Extract the **whole** zip, then run `CreatorAssistant.exe` inside the `CreatorAssistant` folder.
+
+The folder must contain `CreatorAssistant.exe`, `CreatorAssistant-core.exe`, `_internal`, `config.yaml`, and `CreatorAssistantGameLogger.exe`. Copying only the `.exe` will not start.
+
+Edit `config.yaml` in that folder for your accounts. API keys stay on your PC. They are not written to `creatorassistant.log`.
+
+**Requirements:** Windows 10 or 11, 64-bit. FFmpeg on PATH, or `ffmpeg_path` in `config.yaml` (see below). Python is not required for this zip.
+
+**SmartScreen:** The exe is unsigned. Windows may say it protected your PC. Choose **More info**, then **Run anyway**.
+
+**Check the download** (PowerShell). `Hash` should match the hex at the start of `CreatorAssistant-v1.0.1-win64.zip.sha256` on the release (case does not matter; the file also names the zip):
+
+```powershell
+Get-FileHash .\CreatorAssistant-v1.0.1-win64.zip -Algorithm SHA256
+```
+
 ## How It Works
 
 1. **AI detection** – Analyzes audio energy and visual motion to find exciting moments (team fights, kills, etc.)
@@ -9,6 +27,8 @@ Automatically detect highlights in your OBS-recorded League of Legends gameplay 
 3. **9:16 conversion** – Converts to vertical format for YouTube Shorts, TikTok, Instagram Reels
 
 ## Prerequisites
+
+The Windows zip in **Install** does not need Python. To run from source:
 
 - **Python 3.9+**
 - **FFmpeg** – Required for video/audio processing
@@ -60,7 +80,7 @@ Clips are saved to the `outputs/` folder as `{video_name}_clip_01.mp4`, `_clip_0
 
 ### Standalone `.exe` builds
 
-See **[BUILD.md](BUILD.md)** for PyInstaller commands (`CreatorAssistant` + `CreatorAssistantGameLogger`).
+Windows users should use the zip in **Install** above. To build that zip locally, see **[BUILD.md](BUILD.md)**.
 
 ## Configuration
 
@@ -155,3 +175,13 @@ OBS recording → (optional: edit in Filmora) → CreatorAssistant → Shorts up
 3. **First run:** A browser URL will be shown; visit it to authorize. A local server catches the callback and saves the token.
 
 4. **Note:** Unverified TikTok apps may only post to private accounts until approved.
+
+## Troubleshooting
+
+**`Failed to load Python DLL` / `_internal\python313.dll`, or “Missing _internal folder”.** The download was only the exe. Extract `CreatorAssistant-v1.0.1-win64.zip` completely and run `CreatorAssistant.exe` from that folder. Do not copy `CreatorAssistant.exe` out by itself. `CreatorAssistant.exe` is a small launcher: if `_internal` is missing it shows that message instead of the Python DLL error. `CreatorAssistant-core.exe` is the real app and still needs `_internal` beside it.
+
+**`Missing config.yaml`.** Keep `config.yaml` next to `CreatorAssistant.exe`. The zip includes one copied from `config.example.yaml`.
+
+**FFmpeg not found.** Install FFmpeg and add its `bin` folder to PATH, or set `ffmpeg_path` in `config.yaml`.
+
+**Send a bug report.** Attach `creatorassistant.log` from the app folder. It records startup and errors with API keys and home-folder names removed. Include your Windows version, the app version (`CreatorAssistant.exe --version`), and the exact error text. A [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml) asks for those.

@@ -21,7 +21,13 @@ def format_elapsed(secs: float) -> str:
 
 
 def emit_log(log: Callable[[str], None] | None, msg: str) -> None:
-    """Print to stdout or forward to a GUI/thread log callback."""
+    """Print to stdout or forward to a GUI/thread log callback, and append a redacted log file."""
+    try:
+        from app_log import write
+
+        write(msg)
+    except Exception:
+        pass
     if log:
         log(msg)
     else:
