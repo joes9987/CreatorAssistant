@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Version matches tag
+        shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          python -c @"
+          import os, sys, version
+          tag = os.environ['TAG']
+          expect = tag[1:] if tag.startswith('v') else tag
+          if version.__version__ != expect:
+              sys.stderr.write(f'version.py has {version.__version__} but tag is {tag}\n')
+              sys.exit(1)
+          "@
+          if ($LASTEXITCODE -ne 0) { throw "version.py does not match tag $env:TAG" }
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = python -c "import version; print(version.__version__)"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$v" -Encoding utf8NoBOM
+
+      - name: Build
+        shell: pwsh
+        run: ./packaging/build.ps1 -StageOnly
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $dir = "dist/CreatorAssistant-v$ver-win64/CreatorAssistant"
+          $exe = Join-Path $dir "CreatorAssistant.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $p = Start-Process -FilePath $exe -ArgumentList '--selftest' -Wait -PassThru -WindowStyle Hidden
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path (Join-Path $dir "creatorassistant.log")) {
+              Get-Content (Join-Path $dir "creatorassistant.log")
+            }
+            throw "selftest exit $($p.ExitCode)"
+          }
+          $log = Join-Path $dir "creatorassistant.log"
+          if (-not (Select-String -Path $log -Pattern "selftest ok" -Quiet)) {
+            throw "log missing selftest ok"
+          }
+
+      - name: Zip
+        shell: pwsh
+        run: ./packaging/build.ps1 -ZipOnly
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/CreatorAssistant-v${{ steps.ver.outputs.version }}-win64.zip
+            dist/CreatorAssistant-v${{ steps.ver.outputs.version }}-win64.zip.sha256
